@@ -122,7 +122,7 @@ def get_mime_type(filename: str) -> str:
     }.get(ext, "image/jpeg")
 
 
-MODELS = ["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.5-flash"]
+MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
 
 def extract_bill_with_gemini(file_bytes: bytes, mime_type: str) -> dict:

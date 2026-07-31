@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   Building2,
   Users,
@@ -9,11 +9,13 @@ import {
   LayoutDashboard,
   Receipt,
   BookOpen,
+  LogOut,
 } from "lucide-react";
 
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -22,6 +24,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const masters = [
   { title: "Companies", url: "/masters/companies", icon: Building2 },
@@ -34,13 +39,23 @@ const masters = [
 const bills = [
   { title: "All Bills", url: "/bills", icon: FileText },
   { title: "New Bill", url: "/bills/new", icon: Receipt },
+  { title: "Delivery Challans", url: "/challans", icon: Truck },
   { title: "Vendor Ledger", url: "/ledgers", icon: BookOpen },
 ];
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
+  const { user } = useAuth();
+
   const isActive = (url: string) =>
     url === "/" ? pathname === "/" : pathname === url || pathname.startsWith(url + "/");
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    toast.success("Signed out successfully");
+    navigate({ to: "/login" });
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -55,6 +70,7 @@ export function AppSidebar() {
           </div>
         </Link>
       </SidebarHeader>
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
@@ -107,6 +123,26 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter className="border-t border-sidebar-border p-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sidebar-primary/20 text-sidebar-primary text-xs font-bold uppercase">
+            {user?.email?.[0] ?? "U"}
+          </div>
+          <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
+            <p className="text-xs font-medium truncate text-sidebar-foreground">
+              {user?.email ?? "User"}
+            </p>
+          </div>
+          <button
+            onClick={handleSignOut}
+            title="Sign out"
+            className="group-data-[collapsible=icon]:hidden flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      </SidebarFooter>
     </Sidebar>
   );
 }

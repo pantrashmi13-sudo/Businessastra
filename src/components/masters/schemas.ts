@@ -82,6 +82,9 @@ export const vendorFields: FieldDef[] = [
 export const itemSchema = z.object({
   item_code: z.string().trim().min(1, "Code required").max(50),
   item_name: z.string().trim().min(1, "Name required").max(200),
+  parent_category: opt,
+  sub_parent_category: opt,
+  category: opt,
   uom: z.string().trim().min(1).default("NOS"),
   hsn_code: opt,
   default_rate: z.coerce.number().min(0).default(0),
@@ -99,18 +102,19 @@ export const itemSchema = z.object({
 export const itemFields: FieldDef[] = [
   { key: "item_code", label: "Item Code" },
   { key: "item_name", label: "Item Name" },
+  { key: "category", label: "Category", placeholder: "e.g., Finished Goods, Spices" },
+  { key: "parent_category", label: "Parent Category", placeholder: "e.g., Food & Beverages" },
+  { key: "sub_parent_category", label: "Sub-Parent Category", placeholder: "e.g., Organic Produce" },
   { key: "uom", label: "Unit", placeholder: "Kg, Piece, Box, Liter…" },
   { key: "hsn_code", label: "HSN / SAC Code" },
-  { key: "default_rate", label: "Purchase Price", type: "number" },
   { key: "vat_rate", label: "VAT %", type: "number" },
-  { key: "qty", label: "Quantity", type: "number" },
   { key: "selling_price", label: "Selling Price", type: "number" },
   { key: "reorder_level", label: "Reorder Level", type: "number" },
   {
     key: "warehouse",
     label: "Warehouse",
     type: "select",
-    options: ["Main Warehouse", "Store Room", "Office", "Site"],
+    options: ["Main Warehouse", "Store Room", "Office", "Site", "Other"],
     placeholder: "Select warehouse",
   },
   {

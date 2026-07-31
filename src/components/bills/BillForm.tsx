@@ -27,6 +27,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 import { EntityCombobox, type EntityOption } from "./EntityCombobox";
 import {
@@ -198,6 +207,23 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const [ocrRawText, setOcrRawText] = useState<string | null>(null);
   const [showOcrText, setShowOcrText] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[] | null>(null);
+
+  // Master sync & confirmation state
+  const [extractedVendorData, setExtractedVendorData] = useState<{
+    name: string;
+    vat_number?: string | null;
+    pan?: string | null;
+    address?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    state?: string | null;
+    city?: string | null;
+    pincode?: string | null;
+  } | null>(null);
+
+  const [showApprovalConfirmModal, setShowApprovalConfirmModal] = useState(false);
+  const [syncVendorToMaster, setSyncVendorToMaster] = useState(true);
+  const [linesToSyncMaster, setLinesToSyncMaster] = useState<Record<string, boolean>>({});
 
   // Auto-suggest internal bill number for new bills
   useEffect(() => {
@@ -497,43 +523,58 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     if (match) {
       setVendorId(match.id as string);
       setVendorRow(match as Record<string, unknown>);
+      setExtractedVendorData(null);
     } else if (r.vendor_name || r.vendor_vat_number || r.vendor_pan) {
-      setCreatingVendor(true);
-      (async () => {
-        try {
-          const finalName = r.vendor_name?.trim() || `Vendor (VAT/PAN: ${r.vendor_vat_number || r.vendor_pan})`;
-          const insertPayload: Record<string, unknown> = {
-            name: finalName,
-            vat_number: r.vendor_vat_number || null,
-            pan: r.vendor_pan || null,
-            address: r.vendor_address || null,
-            phone: r.vendor_phone || null,
-            email: r.vendor_email || null,
-            state: r.vendor_state || null,
-            city: r.vendor_city || null,
-            pincode: r.vendor_pincode || null,
-          };
-          const { data: newVendor, error } = await supabase
-            .from("vendors")
-            .insert(insertPayload as never)
-            .select()
-            .single();
-          if (error) throw error;
-          setVendorId(newVendor.id as string);
-          setVendorRow(newVendor as Record<string, unknown>);
-          qc.invalidateQueries({ queryKey: ["vendors"] });
-          toast.success(`Vendor "${finalName}" created`);
-        } catch (e) {
-          toast.error(`Failed to create vendor: ${(e as Error).message}`);
-        } finally {
-          setCreatingVendor(false);
-        }
-      })();
+      const finalName = r.vendor_name?.trim() || `Vendor (VAT/PAN: ${r.vendor_vat_number || r.vendor_pan})`;
+      setExtractedVendorData({
+        name: finalName,
+        vat_number: r.vendor_vat_number || null,
+        pan: r.vendor_pan || null,
+        address: r.vendor_address || null,
+        phone: r.vendor_phone || null,
+        email: r.vendor_email || null,
+        state: r.vendor_state || null,
+        city: r.vendor_city || null,
+        pincode: r.vendor_pincode || null,
+      });
+      toast.info(`Extracted vendor "${finalName}". Confirm adding to Master below.`);
+    }
+  };
+
+  const handleCreateExtractedVendor = async () => {
+    if (!extractedVendorData) return;
+    setCreatingVendor(true);
+    try {
+      const { data: newVendor, error } = await supabase
+        .from("vendors")
+        .insert({
+          name: extractedVendorData.name,
+          vat_number: extractedVendorData.vat_number || null,
+          pan: extractedVendorData.pan || null,
+          address: extractedVendorData.address || null,
+          phone: extractedVendorData.phone || null,
+          email: extractedVendorData.email || null,
+          state: extractedVendorData.state || null,
+          city: extractedVendorData.city || null,
+          pincode: extractedVendorData.pincode || null,
+        } as never)
+        .select()
+        .single();
+      if (error) throw error;
+      setVendorId(newVendor.id as string);
+      setVendorRow(newVendor as Record<string, unknown>);
+      setExtractedVendorData(null);
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      toast.success(`Vendor "${extractedVendorData.name}" added to Master`);
+    } catch (e) {
+      toast.error(`Failed to create vendor: ${(e as Error).message}`);
+    } finally {
+      setCreatingVendor(false);
     }
   };
 
   const save = useMutation({
-    mutationFn: async (opts: { approve: boolean }) => {
+    mutationFn: async (opts: { approve: boolean; syncMasters?: boolean; lineIndicesToSync?: number[] }) => {
       const payload = {
         bill_type: billType,
         vendor_id: vendorId,
@@ -684,8 +725,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
       qc.invalidateQueries({ queryKey: ["ledgers"] });
       toast.success(vars.approve ? "Bill approved & saved" : "Draft saved");
 
-      // Auto-create master records on approve (inventory, services, fixed assets)
-      if (vars.approve) {
+      // Auto-create/update master records on approve IF user confirmed master sync
+      if (vars.approve && vars.syncMasters !== false) {
         const isFixedAssets = billTypeRef.current === "fixed_assets";
         const isServices = billTypeRef.current === "services";
         const table = isFixedAssets ? "fixed_assets" : "items";
@@ -693,12 +734,16 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         const nameField = isFixedAssets ? "asset_name" : "item_name";
         const label = isFixedAssets ? "fixed assets" : isServices ? "services" : "inventory";
 
+        const allowedIndices = vars.lineIndicesToSync
+          ? new Set(vars.lineIndicesToSync)
+          : new Set(lines.map((_, idx) => idx));
+
         (async () => {
           let created = 0;
           let updated = 0;
 
-          // ── 1. Increment qty for MATCHED lines (ref_id is set) ──
-          const matched = lines.filter((l) => l.ref_id && l.name.trim());
+          // ── 1. Increment qty for MATCHED lines ──
+          const matched = lines.filter((l, idx) => l.ref_id && l.name.trim() && allowedIndices.has(idx));
           for (const line of matched) {
             const { data: item } = await supabase
               .from(table)
@@ -715,32 +760,29 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             }
           }
 
-          // ── 2. Create or update UNMATCHED lines (no ref_id) ──
-          const unmatched = lines.filter((l) => !l.ref_id && l.name.trim());
+          // ── 2. Create or update UNMATCHED lines ──
+          const unmatched = lines.filter((l, idx) => !l.ref_id && l.name.trim() && allowedIndices.has(idx));
           for (const line of unmatched) {
-            const autoCode = line.name
+            const autoCode = (line.code || line.name)
               .trim()
               .toUpperCase()
               .replace(/[^A-Z0-9 ]/g, "")
               .replace(/\s+/g, "-")
               .slice(0, 50);
 
-            // Normalize name for fuzzy matching: collapse spaces, lowercase
+            // Normalize name for fuzzy matching
             const normalizedInput = line.name.trim().toLowerCase().replace(/\s+/g, " ");
             const normalizedName = (n: string) => n.trim().toLowerCase().replace(/\s+/g, " ");
 
-            // For items/services table, also filter by is_service to avoid cross-matching
             const { data: existingCandidates } = await supabase
               .from(table)
               .select("id, qty, is_service")
               .or(`${codeField}.eq.${autoCode},${nameField}.eq.${line.name.trim()}`);
 
-            // Filter by is_service client-side (generated types may not include it in .eq)
             let existing = isFixedAssets
               ? existingCandidates?.[0] ?? null
               : (existingCandidates as any)?.find((r: any) => r.is_service === isServices) ?? null;
 
-            // Fuzzy fallback: try normalized name match if exact match failed
             if (!existing && !isFixedAssets) {
               const fuzzyCandidates = await supabase
                 .from(table)
@@ -769,11 +811,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 vat_rate: line.vat_rate,
                 qty: Number(line.quantity) || 1,
               };
-              // Mark as service
               if (!isFixedAssets) {
                 payload.is_service = isServices;
               }
-              // Add purchase fields for fixed assets
               if (isFixedAssets) {
                 payload.purchase_date = invoiceDate || null;
                 payload.purchase_cost = line.per_unit;
@@ -838,7 +878,15 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               <Save className="mr-1 h-4 w-4" /> Save Draft
             </Button>
             <Button
-              onClick={() => save.mutate({ approve: true })}
+              onClick={() => {
+                const initialLinesToSync: Record<string, boolean> = {};
+                lines.forEach((l, idx) => {
+                  if (l.name.trim()) initialLinesToSync[idx] = true;
+                });
+                setLinesToSyncMaster(initialLinesToSync);
+                setSyncVendorToMaster(true);
+                setShowApprovalConfirmModal(true);
+              }}
               disabled={save.isPending || creatingVendor}
             >
               <CheckCircle2 className="mr-1 h-4 w-4" /> Approve &amp; Save
@@ -995,6 +1043,34 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               {vendorSublabel ? (
                 <p className="mt-1 text-xs text-muted-foreground">{vendorSublabel}</p>
               ) : null}
+              {extractedVendorData && !vendorId ? (
+                <div className="mt-2 rounded-md border border-amber-300 bg-amber-50/80 p-3 text-sm dark:bg-amber-950/40 dark:border-amber-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <p className="font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-1">
+                        <CheckCircle2 className="h-4 w-4 text-amber-600" /> Extracted Vendor: {extractedVendorData.name}
+                      </p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                        {[
+                          extractedVendorData.vat_number && `VAT: ${extractedVendorData.vat_number}`,
+                          extractedVendorData.pan && `PAN: ${extractedVendorData.pan}`,
+                          extractedVendorData.phone && `Phone: ${extractedVendorData.phone}`,
+                          extractedVendorData.email && `Email: ${extractedVendorData.email}`,
+                        ].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" type="button" onClick={handleCreateExtractedVendor} disabled={creatingVendor}>
+                        {creatingVendor ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+                        Add to Vendor Master
+                      </Button>
+                      <Button size="sm" type="button" variant="outline" onClick={() => setExtractedVendorData(null)}>
+                        Skip
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
             <Field label="Bill Number">
               <Input value={billNumber} onChange={(e) => setBillNumber(e.target.value)} />
@@ -1027,22 +1103,22 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             </Button>
           </CardHeader>
           <CardContent className="overflow-x-auto">
-            <Table>
+            <Table className="table-fixed min-w-[1200px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">S.No</TableHead>
-                  <TableHead className="min-w-[280px]">
+                  <TableHead className="w-[50px]">S.No</TableHead>
+                  <TableHead className="w-[260px]">
                     {billType === "fixed_assets" ? "Asset" : billType === "services" ? "Service" : "Item"}
                   </TableHead>
-                  <TableHead className="w-24">Code</TableHead>
-                  <TableHead className="w-20">UOM</TableHead>
-                  <TableHead className="w-24 text-right">Qty</TableHead>
-                  <TableHead className="w-32 text-right">Per Unit</TableHead>
-                  <TableHead className="w-20 text-right">{taxType === "pan" ? "Tax %" : "VAT %"}</TableHead>
-                  <TableHead className="w-28">Lot Number</TableHead>
-                  <TableHead className="w-36">Expiry Date</TableHead>
-                  <TableHead className="w-32 text-right">Line Amount</TableHead>
-                  <TableHead className="w-10"></TableHead>
+                  <TableHead className="w-[90px]">Code</TableHead>
+                  <TableHead className="w-[80px]">UOM</TableHead>
+                  <TableHead className="w-[100px] text-right">Qty</TableHead>
+                  <TableHead className="w-[110px] text-right">Per Unit</TableHead>
+                  <TableHead className="w-[80px] text-right">{taxType === "pan" ? "Tax %" : "VAT %"}</TableHead>
+                  <TableHead className="w-[110px]">Lot Number</TableHead>
+                  <TableHead className="w-[140px]">Expiry Date</TableHead>
+                  <TableHead className="w-[110px] text-right">Line Amount</TableHead>
+                  <TableHead className="w-[40px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1050,8 +1126,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                   const lineAmt = computeLineAmount(l.quantity, l.per_unit);
                   return (
                     <TableRow key={i}>
-                      <TableCell className="text-muted-foreground">{l.sno}</TableCell>
-                      <TableCell>
+                      <TableCell className="w-[50px] text-muted-foreground align-middle">{l.sno}</TableCell>
+                      <TableCell className="w-[260px] align-middle">
                         <EntityCombobox
                           value={l.ref_id}
                           onChange={(id, row) => {
@@ -1085,68 +1161,72 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           nameKey={billType === "fixed_assets" ? "asset_name" : "item_name"}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[90px] align-middle">
                         <Input
+                          className="w-full font-mono text-xs"
                           value={l.code}
                           onChange={(e) => updateLine(i, { code: e.target.value })}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[80px] align-middle">
                         <Input
+                          className="w-full text-xs"
                           value={l.uom}
                           onChange={(e) => updateLine(i, { uom: e.target.value })}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[100px] align-middle">
                         <Input
                           type="number"
                           step="any"
-                          className="text-right"
+                          className="w-full text-right"
                           value={l.quantity}
                           onChange={(e) =>
                             updateLine(i, { quantity: toNumber(e.target.value, 0) })
                           }
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[110px] align-middle">
                         <Input
                           type="number"
                           step="any"
-                          className="text-right"
+                          className="w-full text-right"
                           value={l.per_unit}
                           onChange={(e) =>
                             updateLine(i, { per_unit: toNumber(e.target.value, 0) })
                           }
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[80px] align-middle">
                         <Input
                           type="number"
                           step="any"
-                          className="text-right"
+                          className="w-full text-right"
                           value={l.vat_rate}
                           onChange={(e) =>
                             updateLine(i, { vat_rate: toNumber(e.target.value, 0) })
                           }
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[110px] align-middle">
                         <Input
+                          className="w-full font-mono text-xs"
                           value={l.lot_number}
                           onChange={(e) => updateLine(i, { lot_number: e.target.value })}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[140px] align-middle">
                         <Input
                           type="date"
+                          className="w-full text-xs"
                           value={l.expiry_date}
                           onChange={(e) => updateLine(i, { expiry_date: e.target.value })}
                         />
                       </TableCell>
-                      <TableCell className="text-right font-medium">
+                      <TableCell className="w-[110px] text-right font-medium align-middle">
                         {num(lineAmt)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="w-[40px] align-middle">
                         <Button
                           size="icon"
                           variant="ghost"
@@ -1232,6 +1312,117 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           </CardContent>
         </Card>
       </div>
+
+      {/* Master Data Sync Confirmation Dialog on Bill Approval */}
+      <Dialog open={showApprovalConfirmModal} onOpenChange={setShowApprovalConfirmModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <CheckCircle2 className="h-5 w-5 text-primary" /> Confirm Master Updates on Approval
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Review vendor &amp; item records to add or update in Master database when approving Bill #{billNumber || internalBillNumber || ""}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Vendor confirmation */}
+            {extractedVendorData && !vendorId ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3 dark:bg-amber-950/30">
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="sync-vendor-modal"
+                    checked={syncVendorToMaster}
+                    onCheckedChange={(c) => setSyncVendorToMaster(!!c)}
+                  />
+                  <div>
+                    <label htmlFor="sync-vendor-modal" className="font-semibold text-xs cursor-pointer block">
+                      Add Extracted Vendor to Master
+                    </label>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {extractedVendorData.name} {extractedVendorData.vat_number ? `(VAT: ${extractedVendorData.vat_number})` : ""}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Line items master updates */}
+            <div>
+              <Label className="text-xs font-semibold text-muted-foreground block mb-2">
+                Line Items to Add/Update in Masters:
+              </Label>
+              <div className="max-h-56 overflow-y-auto space-y-2 rounded-md border p-3">
+                {lines.filter((l) => l.name.trim()).length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No line items in this bill.</p>
+                ) : (
+                  lines.map((l, idx) => {
+                    if (!l.name.trim()) return null;
+                    const isMatched = !!l.ref_id;
+                    const isChecked = linesToSyncMaster[idx] ?? true;
+
+                    return (
+                      <div key={idx} className="flex items-center justify-between gap-2 border-b pb-2 last:border-0 last:pb-0 text-xs">
+                        <div className="flex items-start gap-2 flex-1">
+                          <Checkbox
+                            id={`sync-line-${idx}`}
+                            checked={isChecked}
+                            onCheckedChange={(c) => {
+                              setLinesToSyncMaster((prev) => ({ ...prev, [idx]: !!c }));
+                            }}
+                          />
+                          <div>
+                            <label htmlFor={`sync-line-${idx}`} className="font-medium cursor-pointer block">
+                              {l.name}
+                            </label>
+                            <span className="text-[11px] text-muted-foreground">
+                              Qty: {l.quantity} {l.uom} · Rate: ₹{l.per_unit}
+                            </span>
+                          </div>
+                        </div>
+                        <Badge variant={isMatched ? "outline" : "default"} className="text-[10px]">
+                          {isMatched ? "Update Qty" : "Create New"}
+                        </Badge>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowApprovalConfirmModal(false);
+                save.mutate({ approve: true, syncMasters: false });
+              }}
+              disabled={save.isPending}
+            >
+              Approve Bill Only (Skip Masters)
+            </Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                setShowApprovalConfirmModal(false);
+                if (syncVendorToMaster && extractedVendorData && !vendorId) {
+                  await handleCreateExtractedVendor();
+                }
+                const allowedIndices = Object.entries(linesToSyncMaster)
+                  .filter(([, checked]) => checked)
+                  .map(([idxStr]) => Number(idxStr));
+
+                save.mutate({ approve: true, syncMasters: true, lineIndicesToSync: allowedIndices });
+              }}
+              disabled={save.isPending}
+            >
+              Confirm Approval &amp; Sync Masters
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

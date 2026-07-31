@@ -10,3 +10,4 @@ ALTER TABLE public.items ADD COLUMN IF NOT EXISTS alt_uom_conversion NUMERIC(14,
 
 -- Add PAN column to fixed_assets for Nepal tax registration
 ALTER TABLE public.fixed_assets ADD COLUMN IF NOT EXISTS pan TEXT;
+

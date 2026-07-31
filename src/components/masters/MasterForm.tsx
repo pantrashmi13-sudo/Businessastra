@@ -121,21 +121,49 @@ export function MasterForm<S extends z.ZodTypeAny>({
                   />
                 </div>
               ) : f.type === "select" ? (
-                <Select
-                  value={(form.watch(f.key) as string) ?? ""}
-                  onValueChange={(v) => form.setValue(f.key, v as never)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={f.placeholder ?? `Select ${f.label}`} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(f.options ?? []).map((opt) => (
-                      <SelectItem key={opt} value={opt}>
-                        {opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                (() => {
+                  const val = (form.watch(f.key) as string) ?? "";
+                  const predefinedNoOther = f.options?.filter((o) => o !== "Other") ?? [];
+                  const isPredefined = predefinedNoOther.includes(val);
+                  const isOtherSelected =
+                    Boolean(f.options?.includes("Other")) &&
+                    (val === "Other" || (!isPredefined && val.trim() !== ""));
+
+                  return (
+                    <div className="space-y-1.5">
+                      <Select
+                        value={isPredefined ? val : isOtherSelected ? "Other" : val}
+                        onValueChange={(v) => {
+                          if (v === "Other") {
+                            form.setValue(f.key, "Other" as never);
+                          } else {
+                            form.setValue(f.key, v as never);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder={f.placeholder ?? `Select ${f.label}`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(f.options ?? []).map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      {isOtherSelected ? (
+                        <Input
+                          placeholder={`Fill custom ${f.label.toLowerCase()}…`}
+                          className="mt-1.5 text-xs font-mono"
+                          value={val === "Other" ? "" : val}
+                          onChange={(e) => form.setValue(f.key, e.target.value as never)}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })()
               ) : (
                 <Input
                   type={f.type === "number" ? "number" : f.type === "email" ? "email" : "text"}

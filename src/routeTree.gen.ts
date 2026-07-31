@@ -9,17 +9,26 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as LedgersRouteImport } from './routes/ledgers'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChallansIndexRouteImport } from './routes/challans.index'
 import { Route as BillsIndexRouteImport } from './routes/bills.index'
 import { Route as MastersVendorsRouteImport } from './routes/masters.vendors'
 import { Route as MastersItemsRouteImport } from './routes/masters.items'
 import { Route as MastersFixedAssetsRouteImport } from './routes/masters.fixed-assets'
 import { Route as MastersCustomersRouteImport } from './routes/masters.customers'
 import { Route as MastersCompaniesRouteImport } from './routes/masters.companies'
+import { Route as ChallansNewRouteImport } from './routes/challans.new'
+import { Route as ChallansIdRouteImport } from './routes/challans.$id'
 import { Route as BillsNewRouteImport } from './routes/bills.new'
 import { Route as BillsIdRouteImport } from './routes/bills.$id'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LedgersRoute = LedgersRouteImport.update({
   id: '/ledgers',
   path: '/ledgers',
@@ -28,6 +37,11 @@ const LedgersRoute = LedgersRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChallansIndexRoute = ChallansIndexRouteImport.update({
+  id: '/challans/',
+  path: '/challans/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BillsIndexRoute = BillsIndexRouteImport.update({
@@ -60,6 +74,16 @@ const MastersCompaniesRoute = MastersCompaniesRouteImport.update({
   path: '/masters/companies',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChallansNewRoute = ChallansNewRouteImport.update({
+  id: '/challans/new',
+  path: '/challans/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChallansIdRoute = ChallansIdRouteImport.update({
+  id: '/challans/$id',
+  path: '/challans/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BillsNewRoute = BillsNewRouteImport.update({
   id: '/bills/new',
   path: '/bills/new',
@@ -74,94 +98,129 @@ const BillsIdRoute = BillsIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ledgers': typeof LedgersRoute
+  '/login': typeof LoginRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
+  '/challans/$id': typeof ChallansIdRoute
+  '/challans/new': typeof ChallansNewRoute
   '/masters/companies': typeof MastersCompaniesRoute
   '/masters/customers': typeof MastersCustomersRoute
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills/': typeof BillsIndexRoute
+  '/challans/': typeof ChallansIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ledgers': typeof LedgersRoute
+  '/login': typeof LoginRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
+  '/challans/$id': typeof ChallansIdRoute
+  '/challans/new': typeof ChallansNewRoute
   '/masters/companies': typeof MastersCompaniesRoute
   '/masters/customers': typeof MastersCustomersRoute
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills': typeof BillsIndexRoute
+  '/challans': typeof ChallansIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/ledgers': typeof LedgersRoute
+  '/login': typeof LoginRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
+  '/challans/$id': typeof ChallansIdRoute
+  '/challans/new': typeof ChallansNewRoute
   '/masters/companies': typeof MastersCompaniesRoute
   '/masters/customers': typeof MastersCustomersRoute
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills/': typeof BillsIndexRoute
+  '/challans/': typeof ChallansIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/ledgers'
+    | '/login'
     | '/bills/$id'
     | '/bills/new'
+    | '/challans/$id'
+    | '/challans/new'
     | '/masters/companies'
     | '/masters/customers'
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
     | '/bills/'
+    | '/challans/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/ledgers'
+    | '/login'
     | '/bills/$id'
     | '/bills/new'
+    | '/challans/$id'
+    | '/challans/new'
     | '/masters/companies'
     | '/masters/customers'
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
     | '/bills'
+    | '/challans'
   id:
     | '__root__'
     | '/'
     | '/ledgers'
+    | '/login'
     | '/bills/$id'
     | '/bills/new'
+    | '/challans/$id'
+    | '/challans/new'
     | '/masters/companies'
     | '/masters/customers'
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
     | '/bills/'
+    | '/challans/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LedgersRoute: typeof LedgersRoute
+  LoginRoute: typeof LoginRoute
   BillsIdRoute: typeof BillsIdRoute
   BillsNewRoute: typeof BillsNewRoute
+  ChallansIdRoute: typeof ChallansIdRoute
+  ChallansNewRoute: typeof ChallansNewRoute
   MastersCompaniesRoute: typeof MastersCompaniesRoute
   MastersCustomersRoute: typeof MastersCustomersRoute
   MastersFixedAssetsRoute: typeof MastersFixedAssetsRoute
   MastersItemsRoute: typeof MastersItemsRoute
   MastersVendorsRoute: typeof MastersVendorsRoute
   BillsIndexRoute: typeof BillsIndexRoute
+  ChallansIndexRoute: typeof ChallansIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/ledgers': {
       id: '/ledgers'
       path: '/ledgers'
@@ -174,6 +233,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/challans/': {
+      id: '/challans/'
+      path: '/challans'
+      fullPath: '/challans/'
+      preLoaderRoute: typeof ChallansIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bills/': {
@@ -218,6 +284,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MastersCompaniesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/challans/new': {
+      id: '/challans/new'
+      path: '/challans/new'
+      fullPath: '/challans/new'
+      preLoaderRoute: typeof ChallansNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/challans/$id': {
+      id: '/challans/$id'
+      path: '/challans/$id'
+      fullPath: '/challans/$id'
+      preLoaderRoute: typeof ChallansIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/bills/new': {
       id: '/bills/new'
       path: '/bills/new'
@@ -238,14 +318,18 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LedgersRoute: LedgersRoute,
+  LoginRoute: LoginRoute,
   BillsIdRoute: BillsIdRoute,
   BillsNewRoute: BillsNewRoute,
+  ChallansIdRoute: ChallansIdRoute,
+  ChallansNewRoute: ChallansNewRoute,
   MastersCompaniesRoute: MastersCompaniesRoute,
   MastersCustomersRoute: MastersCustomersRoute,
   MastersFixedAssetsRoute: MastersFixedAssetsRoute,
   MastersItemsRoute: MastersItemsRoute,
   MastersVendorsRoute: MastersVendorsRoute,
   BillsIndexRoute: BillsIndexRoute,
+  ChallansIndexRoute: ChallansIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

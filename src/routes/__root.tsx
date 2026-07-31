@@ -6,6 +6,7 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  useNavigate,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -14,6 +15,8 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Toaster } from "@/components/ui/sonner";
+import { useAuth } from "@/hooks/useAuth";
+import { Loader2 } from "lucide-react";
 
 function NotFoundComponent() {
   return (
@@ -125,28 +128,64 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+function AuthGate() {
+  const { session, loading } = useAuth();
+  const navigate = useNavigate();
+  const router = useRouter();
+  const currentPath = router.state.location.pathname;
+
+  useEffect(() => {
+    if (loading) return;
+    if (!session && currentPath !== "/login") {
+      navigate({ to: "/login" });
+    }
+    if (session && currentPath === "/login") {
+      navigate({ to: "/" });
+    }
+  }, [session, loading, currentPath, navigate]);
+
+  // Show spinner while resolving auth
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Not authenticated — render login page (no sidebar)
+  if (!session) {
+    return <Outlet />;
+  }
+
+  // Authenticated — render full app layout with sidebar
+  return (
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full">
+        <AppSidebar />
+        <div className="flex flex-1 flex-col">
+          <header className="flex h-12 items-center gap-2 border-b border-border bg-card px-3">
+            <SidebarTrigger />
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">
+              Ledgerly ERP
+            </div>
+          </header>
+          <main className="flex-1 overflow-x-auto">
+            <Outlet />
+          </main>
+        </div>
+      </div>
+      <Toaster richColors position="top-right" />
+    </SidebarProvider>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SidebarProvider>
-        <div className="flex min-h-screen w-full">
-          <AppSidebar />
-          <div className="flex flex-1 flex-col">
-            <header className="flex h-12 items-center gap-2 border-b border-border bg-card px-3">
-              <SidebarTrigger />
-              <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                Ledgerly ERP
-              </div>
-            </header>
-            <main className="flex-1 overflow-x-auto">
-              <Outlet />
-            </main>
-          </div>
-        </div>
-        <Toaster richColors position="top-right" />
-      </SidebarProvider>
+      <AuthGate />
     </QueryClientProvider>
   );
 }
