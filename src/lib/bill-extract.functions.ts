@@ -48,10 +48,56 @@ const OutputSchema = z.object({
 
 const serviceUrl = process.env.BILL_OCR_SERVICE_URL || "http://localhost:8001";
 
+const GEMINI_PROMPT = `
+Extract all fields from this invoice/bill and return ONLY valid JSON.
+No explanation. No markdown. Raw JSON only.
+
+{
+  "vendor_name": "",
+  "vendor_vat": "",
+  "vendor_pan": "",
+  "vendor_address": "",
+  "vendor_phone": "",
+  "vendor_city": "",
+  "vendor_state": "",
+  "vendor_pincode": "",
+  "bill_number": "",
+  "bill_date": "",
+  "due_date": "",
+  "po_number": "",
+  "line_items": [
+    {
+      "item_name": "",
+      "quantity": 0,
+      "uom": "NOS",
+      "rate": 0,
+      "amount": 0,
+      "vat_rate": 0,
+      "account": ""
+    }
+  ],
+  "subtotal": 0,
+  "total_vat": 0,
+  "transportation": 0,
+  "other_charges": 0,
+  "discount": 0,
+  "final_amount": 0
+}
+
+Rules:
+- Numbers must be actual numbers, not strings
+- If a field is missing, use null
+- Never guess or hallucinate
+- bill_date and due_date should be in DD/MM/YYYY or YYYY-MM-DD format
+- uom is unit of measure (NOS, KG, LTR, PCS, BOX, etc.)
+- Extract vendor address details if visible on the bill
+- Extract PO number if present on the bill
+`;
+
 function mapExtractedToOutput(ex: any, raw_text: string | null): z.infer<typeof OutputSchema> {
   return {
     vendor_name: ex.vendor_name || null,
-    vendor_vat_number: ex.vendor_vat_number || null,
+    vendor_vat_number: ex.vendor_vat || ex.vendor_vat_number || null,
     vendor_pan: ex.vendor_pan || null,
     vendor_address: ex.vendor_address || null,
     vendor_phone: ex.vendor_phone || null,
@@ -61,12 +107,12 @@ function mapExtractedToOutput(ex: any, raw_text: string | null): z.infer<typeof 
     vendor_pincode: ex.vendor_pincode || null,
     tax_type: "vat",
     bill_number: ex.bill_number || null,
-    invoice_date: ex.issue_date || null,
+    invoice_date: ex.bill_date || ex.issue_date || null,
     due_date: ex.due_date || null,
     po_number: ex.po_number || null,
     lines: (ex.line_items || []).map((item: any) => ({
       code: item.account || null,
-      name: item.description || "Item",
+      name: item.item_name || item.description || "Item",
       uom: item.uom || "NOS",
       quantity: item.quantity || 1,
       per_unit: item.rate || 0,
@@ -74,27 +120,81 @@ function mapExtractedToOutput(ex: any, raw_text: string | null): z.infer<typeof 
       lot_number: null,
       expiry_date: null,
     })),
-    taxable_amount: ex.taxable_amount || null,
+    taxable_amount: ex.subtotal || ex.taxable_amount || null,
     exempted_amount: null,
     discount: ex.discount || null,
     transportation: ex.transportation || null,
     other_charges: ex.other_charges || null,
-    vat_amount: ex.tax_total || null,
-    final_amount: ex.total || null,
+    vat_amount: ex.total_vat || ex.tax_total || null,
+    final_amount: ex.final_amount || ex.total || null,
     raw_text: raw_text || null,
     validation_errors: ex._validation_errors || null,
   };
 }
 
 /**
- * Synchronous OCR — calls Gemini-powered Python service directly.
+ * Call Gemini API directly (works in Node serverless on Vercel or falls back to local OCR service)
  */
-async function callBillOCRService(
+async function extractWithDirectGemini(
   file_base64: string,
   mime_type: string,
-  _bill_type: string,
 ): Promise<z.infer<typeof OutputSchema>> {
-  const byteString = atob(file_base64.split(",")[1] || file_base64);
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  // Clean base64 string
+  const cleanBase64 = file_base64.includes(",") ? file_base64.split(",")[1] : file_base64;
+
+  if (apiKey) {
+    // Direct Gemini REST API call
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: GEMINI_PROMPT },
+                {
+                  inline_data: {
+                    mime_type: mime_type,
+                    data: cleanBase64,
+                  },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            response_mime_type: "application/json",
+            temperature: 0.1,
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      throw new Error(`Gemini API Error (${response.status}): ${errText}`);
+    }
+
+    const json = await response.json();
+    const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    let parsed = {};
+    try {
+      // Remove any markdown codeblocks if present
+      const cleanedJson = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+      parsed = JSON.parse(cleanedJson);
+    } catch {
+      throw new Error("Could not parse JSON output from Gemini");
+    }
+
+    return mapExtractedToOutput(parsed, rawText);
+  }
+
+  // Fallback to local Python service if GEMINI_API_KEY is not set on environment
+  const byteString = atob(cleanBase64);
   const ab = new ArrayBuffer(byteString.length);
   const ia = new Uint8Array(ab);
   for (let i = 0; i < byteString.length; i++) {
@@ -131,15 +231,12 @@ export const extractBillFromFile = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => InputSchema.parse(input))
   .handler(async ({ data }) => {
     try {
-      const output = await callBillOCRService(
-        data.file_base64,
-        data.mime_type,
-        data.bill_type,
-      );
+      const output = await extractWithDirectGemini(data.file_base64, data.mime_type);
       return output;
     } catch (error) {
+      console.error("OCR Extraction error:", error);
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("Could not extract text")) {
+      if (message.includes("Could not extract text") || message.includes("Could not parse JSON")) {
         throw new Error(
           "Couldn't read the bill automatically. Please ensure the image is clear and try again.",
         );
@@ -150,7 +247,7 @@ export const extractBillFromFile = createServerFn({ method: "POST" })
       if (message.includes("429") || message.includes("RESOURCE_EXHAUSTED")) {
         throw new Error("AI service rate limit reached. Please try again later.");
       }
-      throw new Error("Bill extraction failed. Please try again or fill manually.");
+      throw new Error(`Bill extraction failed: ${message}`);
     }
   });
 
@@ -161,6 +258,9 @@ export async function checkOCRServiceHealth(): Promise<{
   status: string;
   engine: string;
 }> {
+  if (process.env.GEMINI_API_KEY) {
+    return { status: "ok", engine: "gemini-direct" };
+  }
   try {
     const response = await fetch(`${serviceUrl}/health`, {
       method: "GET",
@@ -176,3 +276,4 @@ export async function checkOCRServiceHealth(): Promise<{
     return { status: "unreachable", engine: "unknown" };
   }
 }
+
