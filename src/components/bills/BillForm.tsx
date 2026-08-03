@@ -576,7 +576,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   };
 
   const save = useMutation({
-    mutationFn: async (opts: { approve: boolean; syncMasters?: boolean; lineIndicesToSync?: number[] }) => {
+    mutationFn: async (opts: { approve: boolean; syncMasters?: boolean; lineIndicesToSync?: number[]; redirectToMasters?: boolean }) => {
       const { data: { user } } = await supabase.auth.getUser();
       const payload: Record<string, unknown> = {
         bill_type: billType,
@@ -726,10 +726,13 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
       return id;
     },
-    onSuccess: (id, vars) => {
+    onSuccess: async (id, vars) => {
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["ledgers"] });
       toast.success(vars.approve ? "Bill approved & saved" : "Draft saved");
+
+      // The bill ID to return to (either existing or newly created)
+      const billId = id || existing?.id;
 
       // Auto-create/update master records on approve IF user confirmed master sync
       if (vars.approve && vars.syncMasters !== false) {
@@ -739,12 +742,13 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         const codeField = isFixedAssets ? "asset_code" : "item_code";
         const nameField = isFixedAssets ? "asset_name" : "item_name";
         const label = isFixedAssets ? "fixed assets" : isServices ? "services" : "inventory";
+        const masterRoute = isFixedAssets ? "/masters/fixed-assets" : "/masters/items";
 
         const allowedIndices = vars.lineIndicesToSync
           ? new Set(vars.lineIndicesToSync)
           : new Set(lines.map((_, idx) => idx));
 
-        (async () => {
+        await (async () => {
           let created = 0;
           let updated = 0;
 
@@ -839,7 +843,20 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             if (updated) parts.push(`${updated} qty updated`);
             toast.success(`${label} ${parts.join(", ")}`);
           }
+
+          // ── 3. Redirect to master page if user chose "Confirm & Edit in Item Master" ──
+          if (vars.redirectToMasters && billId) {
+            toast.info("Redirecting to Item Master — edit details, then click 'Back to Bill' to return.");
+            navigate({
+              to: masterRoute,
+              search: { returnBillId: billId },
+            } as any);
+            return; // skip the default navigation below
+          }
         })();
+
+        // If we redirected to masters, we already returned above; skip default nav
+        if (vars.redirectToMasters) return;
       }
 
       if (isNew && id) {
@@ -1407,7 +1424,30 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               }}
               disabled={save.isPending}
             >
-              Approve Bill Only (Skip Masters)
+              Approve Bill Only
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                setShowApprovalConfirmModal(false);
+                if (syncVendorToMaster && extractedVendorData && !vendorId) {
+                  await handleCreateExtractedVendor();
+                }
+                const allowedIndices = Object.entries(linesToSyncMaster)
+                  .filter(([, checked]) => checked)
+                  .map(([idxStr]) => Number(idxStr));
+
+                save.mutate({
+                  approve: true,
+                  syncMasters: true,
+                  lineIndicesToSync: allowedIndices,
+                  redirectToMasters: true,
+                });
+              }}
+              disabled={save.isPending}
+            >
+              Confirm &amp; Edit in Item Master
             </Button>
             <Button
               size="sm"

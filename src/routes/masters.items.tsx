@@ -3,4 +3,7 @@ import { MaterialCentreRegister } from "@/components/masters/MaterialCentreRegis
 
 export const Route = createFileRoute("/masters/items")({
   component: MaterialCentreRegister,
+  validateSearch: (search: Record<string, unknown>) => ({
+    returnBillId: (search.returnBillId as string) || undefined,
+  }),
 });

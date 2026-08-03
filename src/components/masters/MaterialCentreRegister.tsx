@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,7 @@ import {
   Search,
   ArrowUpDown,
   Calendar,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { inr, num } from "@/lib/format";
@@ -100,6 +102,10 @@ interface UnifiedMovement {
 
 export function MaterialCentreRegister() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false });
+  const returnBillId = (search as any)?.returnBillId;
+
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "goods" | "services">("all");
   const [uomMode, setUomMode] = useState<"main" | "alt">("main");
@@ -423,6 +429,24 @@ export function MaterialCentreRegister() {
 
   return (
     <div className="space-y-6 p-6">
+      {returnBillId && (
+        <div className="flex items-center justify-between p-4 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 shadow-sm">
+          <div className="flex items-center space-x-3">
+            <span className="flex h-3 w-3 rounded-full bg-blue-600 animate-pulse" />
+            <p className="text-sm font-medium">
+              Editing synced master records from Bill approval. Update item details below and return anytime.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => navigate({ to: "/bills/$id", params: { id: returnBillId } })}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to Bill
+          </Button>
+        </div>
+      )}
+
       <PageHeader
         title="Material Centre Register"
         description="Comprehensive Inventory Stock Register grouped by Item Code with Lot, Expiry & Movement Tracking."
