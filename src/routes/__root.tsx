@@ -136,15 +136,15 @@ function AuthGate() {
 
   useEffect(() => {
     if (loading) return;
+
     if (!session && currentPath !== "/login") {
-      navigate({ to: "/login" });
-    }
-    if (session && currentPath === "/login") {
-      navigate({ to: "/" });
+      navigate({ to: "/login", replace: true });
+    } else if (session && currentPath === "/login") {
+      navigate({ to: "/", replace: true });
     }
   }, [session, loading, currentPath, navigate]);
 
-  // Show spinner while resolving auth
+  // Show spinner while checking auth status
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -153,12 +153,17 @@ function AuthGate() {
     );
   }
 
-  // Not authenticated — render login page (no sidebar)
-  if (!session) {
-    return <Outlet />;
+  // Render Login page standalone without sidebar
+  if (currentPath === "/login" || !session) {
+    return (
+      <>
+        <Outlet />
+        <Toaster richColors position="top-right" />
+      </>
+    );
   }
 
-  // Authenticated — render full app layout with sidebar
+  // Authenticated ERP Dashboard layout
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full">
