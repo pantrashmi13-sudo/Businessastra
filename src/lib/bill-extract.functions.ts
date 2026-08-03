@@ -145,52 +145,65 @@ async function extractWithDirectGemini(
   const cleanBase64 = file_base64.includes(",") ? file_base64.split(",")[1] : file_base64;
 
   if (apiKey) {
-    // Direct Gemini REST API call
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: GEMINI_PROMPT },
+    // Try multiple model aliases in order of preference
+    const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest"];
+    let lastError: Error | null = null;
+
+    for (const modelName of models) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [
                 {
-                  inline_data: {
-                    mime_type: mime_type,
-                    data: cleanBase64,
-                  },
+                  parts: [
+                    { text: GEMINI_PROMPT },
+                    {
+                      inline_data: {
+                        mime_type: mime_type,
+                        data: cleanBase64,
+                      },
+                    },
+                  ],
                 },
               ],
-            },
-          ],
-          generationConfig: {
-            response_mime_type: "application/json",
-            temperature: 0.1,
+              generationConfig: {
+                response_mime_type: "application/json",
+                temperature: 0.1,
+              },
+            }),
           },
-        }),
-      },
-    );
+        );
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      throw new Error(`Gemini API Error (${response.status}): ${errText}`);
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          lastError = new Error(`Gemini API Error (${response.status}): ${errText}`);
+          continue; // Try next model if 404 or unsupported
+        }
+
+        const json = await response.json();
+        const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+        let parsed = {};
+        try {
+          const cleanedJson = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+          parsed = JSON.parse(cleanedJson);
+        } catch {
+          throw new Error("Could not parse JSON output from Gemini");
+        }
+
+        return mapExtractedToOutput(parsed, rawText);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
     }
 
-    const json = await response.json();
-    const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-
-    let parsed = {};
-    try {
-      // Remove any markdown codeblocks if present
-      const cleanedJson = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-      parsed = JSON.parse(cleanedJson);
-    } catch {
-      throw new Error("Could not parse JSON output from Gemini");
+    if (lastError) {
+      throw lastError;
     }
-
-    return mapExtractedToOutput(parsed, rawText);
   }
 
   // Fallback to local Python service if GEMINI_API_KEY is not set on environment
