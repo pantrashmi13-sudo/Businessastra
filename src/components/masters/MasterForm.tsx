@@ -62,11 +62,7 @@ export function MasterForm<S extends z.ZodTypeAny>({
 
   const mutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
-      const { data: { user } } = await supabase.auth.getUser();
       const payload = { ...values };
-      if (user?.id) {
-        payload.user_id = user.id;
-      }
       if (initial?.id) {
         const { data, error } = await supabase
           .from(table as never)

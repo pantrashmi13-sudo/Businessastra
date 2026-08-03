@@ -386,9 +386,6 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
         notes: notes || null,
         dispatched_at: new Date().toISOString(),
       };
-      if (user?.id) {
-        payload.user_id = user.id;
-      }
 
       let id = challanId;
       if (id) {
