@@ -545,6 +545,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     if (!extractedVendorData) return;
     setCreatingVendor(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
       const { data: newVendor, error } = await supabase
         .from("vendors")
         .insert({
@@ -557,6 +558,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           state: extractedVendorData.state || null,
           city: extractedVendorData.city || null,
           pincode: extractedVendorData.pincode || null,
+          ...(user?.id ? { user_id: user.id } : {}),
         } as never)
         .select()
         .single();
@@ -575,7 +577,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
   const save = useMutation({
     mutationFn: async (opts: { approve: boolean; syncMasters?: boolean; lineIndicesToSync?: number[] }) => {
-      const payload = {
+      const { data: { user } } = await supabase.auth.getUser();
+      const payload: Record<string, unknown> = {
         bill_type: billType,
         vendor_id: vendorId,
         company_id: (activeCompany?.id as string) ?? null,
@@ -599,6 +602,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           try { return JSON.parse(ocrRawText); } catch { return { raw: ocrRawText }; }
         })(),
       };
+      if (user?.id) {
+        payload.user_id = user.id;
+      }
 
       // ── Duplicate bill check (runs for BOTH new bills AND first-time saves of OCR drafts) ──
       if (billNumber) {
