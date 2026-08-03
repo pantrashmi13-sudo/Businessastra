@@ -1338,12 +1338,12 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
       {/* Master Data Sync Confirmation Dialog on Bill Approval */}
       <Dialog open={showApprovalConfirmModal} onOpenChange={setShowApprovalConfirmModal}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg bg-background text-foreground dark:bg-zinc-950 dark:text-zinc-50 border shadow-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold text-foreground dark:text-zinc-100">
               <CheckCircle2 className="h-5 w-5 text-primary" /> Confirm Master Updates on Approval
             </DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
               Review vendor &amp; item records to add or update in Master database when approving Bill #{billNumber || internalBillNumber || ""}.
             </DialogDescription>
           </DialogHeader>
@@ -1351,7 +1351,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           <div className="space-y-4 py-2">
             {/* Vendor confirmation */}
             {extractedVendorData && !vendorId ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3 dark:bg-amber-950/30">
+              <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/40">
                 <div className="flex items-start gap-2">
                   <Checkbox
                     id="sync-vendor-modal"
@@ -1359,10 +1359,10 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                     onCheckedChange={(c) => setSyncVendorToMaster(!!c)}
                   />
                   <div>
-                    <label htmlFor="sync-vendor-modal" className="font-semibold text-xs cursor-pointer block">
+                    <label htmlFor="sync-vendor-modal" className="font-semibold text-xs cursor-pointer block text-foreground dark:text-zinc-200">
                       Add Extracted Vendor to Master
                     </label>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                    <p className="text-[11px] text-muted-foreground dark:text-zinc-400 mt-0.5">
                       {extractedVendorData.name} {extractedVendorData.vat_number ? `(VAT: ${extractedVendorData.vat_number})` : ""}
                     </p>
                   </div>
@@ -1372,12 +1372,12 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
             {/* Line items master updates */}
             <div>
-              <Label className="text-xs font-semibold text-muted-foreground block mb-2">
+              <Label className="text-xs font-semibold text-muted-foreground dark:text-zinc-300 block mb-2">
                 Line Items to Add/Update in Masters:
               </Label>
-              <div className="max-h-56 overflow-y-auto space-y-2 rounded-md border p-3">
+              <div className="max-h-60 overflow-y-auto space-y-2 rounded-md border p-3 bg-card dark:bg-zinc-900/50">
                 {lines.filter((l) => l.name.trim()).length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No line items in this bill.</p>
+                  <p className="text-xs text-muted-foreground dark:text-zinc-400">No line items in this bill.</p>
                 ) : (
                   lines.map((l, idx) => {
                     if (!l.name.trim()) return null;
@@ -1385,27 +1385,61 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                     const isChecked = linesToSyncMaster[idx] ?? true;
 
                     return (
-                      <div key={idx} className="flex items-center justify-between gap-2 border-b pb-2 last:border-0 last:pb-0 text-xs">
-                        <div className="flex items-start gap-2 flex-1">
+                      <div key={idx} className="flex items-center justify-between gap-3 border-b border-border/50 pb-2.5 last:border-0 last:pb-0 text-xs">
+                        <div className="flex items-start gap-2.5 flex-1 min-w-0">
                           <Checkbox
                             id={`sync-line-${idx}`}
                             checked={isChecked}
                             onCheckedChange={(c) => {
                               setLinesToSyncMaster((prev) => ({ ...prev, [idx]: !!c }));
                             }}
+                            className="mt-0.5"
                           />
-                          <div>
-                            <label htmlFor={`sync-line-${idx}`} className="font-medium cursor-pointer block">
+                          <div className="min-w-0 flex-1">
+                            <label htmlFor={`sync-line-${idx}`} className="font-medium cursor-pointer block truncate text-foreground dark:text-zinc-200">
                               {l.name}
                             </label>
-                            <span className="text-[11px] text-muted-foreground">
+                            <span className="text-[11px] text-muted-foreground dark:text-zinc-400 block">
                               Qty: {l.quantity} {l.uom} · Rate: ₹{l.per_unit}
                             </span>
                           </div>
                         </div>
-                        <Badge variant={isMatched ? "outline" : "default"} className="text-[10px]">
-                          {isMatched ? "Update Qty" : "Create New"}
-                        </Badge>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge
+                            variant={isMatched ? "outline" : "default"}
+                            className={`text-[10px] ${
+                              isMatched
+                                ? "border-zinc-300 dark:border-zinc-700 text-muted-foreground dark:text-zinc-400"
+                                : "bg-emerald-600 dark:bg-emerald-700 text-white"
+                            }`}
+                          >
+                            {isMatched ? "Update Qty" : "New Item"}
+                          </Badge>
+
+                          {!isMatched && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 text-[11px] px-2 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800"
+                              onClick={async () => {
+                                setShowApprovalConfirmModal(false);
+                                if (syncVendorToMaster && extractedVendorData && !vendorId) {
+                                  await handleCreateExtractedVendor();
+                                }
+                                save.mutate({
+                                  approve: true,
+                                  syncMasters: true,
+                                  lineIndicesToSync: [idx],
+                                  redirectToMasters: true,
+                                });
+                              }}
+                            >
+                              Edit in Master
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     );
                   })
@@ -1414,7 +1448,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             </div>
           </div>
 
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-2 border-t border-border/40">
             <Button
               variant="outline"
               size="sm"
@@ -1425,29 +1459,6 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               disabled={save.isPending}
             >
               Approve Bill Only
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                setShowApprovalConfirmModal(false);
-                if (syncVendorToMaster && extractedVendorData && !vendorId) {
-                  await handleCreateExtractedVendor();
-                }
-                const allowedIndices = Object.entries(linesToSyncMaster)
-                  .filter(([, checked]) => checked)
-                  .map(([idxStr]) => Number(idxStr));
-
-                save.mutate({
-                  approve: true,
-                  syncMasters: true,
-                  lineIndicesToSync: allowedIndices,
-                  redirectToMasters: true,
-                });
-              }}
-              disabled={save.isPending}
-            >
-              Confirm &amp; Edit in Item Master
             </Button>
             <Button
               size="sm"
@@ -1463,6 +1474,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 save.mutate({ approve: true, syncMasters: true, lineIndicesToSync: allowedIndices });
               }}
               disabled={save.isPending}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Confirm Approval &amp; Sync Masters
             </Button>
