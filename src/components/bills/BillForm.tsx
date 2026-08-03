@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { EntityCombobox, type EntityOption } from "./EntityCombobox";
+import { MasterForm } from "@/components/masters/MasterForm";
 import {
   vendorSchema,
   vendorFields,
@@ -224,6 +225,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const [showApprovalConfirmModal, setShowApprovalConfirmModal] = useState(false);
   const [syncVendorToMaster, setSyncVendorToMaster] = useState(true);
   const [linesToSyncMaster, setLinesToSyncMaster] = useState<Record<string, boolean>>({});
+  const [editingMasterItemIndex, setEditingMasterItemIndex] = useState<number | null>(null);
+  const [syncedItemMap, setSyncedItemMap] = useState<Record<number, boolean>>({});
 
   // Auto-suggest internal bill number for new bills
   useEffect(() => {
@@ -1344,6 +1347,84 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {/* Inline Master Form (opens directly above the list when "Edit in Master" is clicked) */}
+            {editingMasterItemIndex !== null && (() => {
+              const line = lines[editingMasterItemIndex];
+              if (!line) return null;
+
+              const isFixedAssets = billType === "fixed_assets";
+              const isServices = billType === "services";
+              const table = isFixedAssets ? "fixed_assets" : "items";
+              const autoCode = (line.code || line.name)
+                .trim()
+                .toUpperCase()
+                .replace(/[^A-Z0-9 ]/g, "")
+                .replace(/\s+/g, "-")
+                .slice(0, 50);
+
+              const initialMasterValues: Record<string, unknown> = isFixedAssets
+                ? {
+                    asset_code: autoCode,
+                    asset_name: line.name.trim(),
+                    uom: line.uom || "NOS",
+                    category: "Other",
+                    purchase_date: invoiceDate || new Date().toISOString().slice(0, 10),
+                    purchase_cost: line.per_unit,
+                    total_cost: computeLineAmount(line.quantity, line.per_unit),
+                    qty: Number(line.quantity) || 1,
+                  }
+                : {
+                    item_code: autoCode,
+                    item_name: line.name.trim(),
+                    uom: line.uom || "NOS",
+                    default_rate: line.per_unit,
+                    vat_rate: line.vat_rate,
+                    qty: Number(line.quantity) || 1,
+                    is_service: isServices,
+                  };
+
+              return (
+                <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/40 p-3 space-y-2">
+                  <div className="flex items-center justify-between border-b border-blue-200 dark:border-blue-800 pb-1.5">
+                    <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                      Edit Item Details: {line.name}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-[11px] px-2 text-blue-700 dark:text-blue-300"
+                      onClick={() => setEditingMasterItemIndex(null)}
+                    >
+                      Close Form
+                    </Button>
+                  </div>
+                  <MasterForm
+                    table={table}
+                    schema={isFixedAssets ? fixedAssetSchema : itemSchema}
+                    fields={isFixedAssets ? fixedAssetFields : itemFields}
+                    initial={initialMasterValues}
+                    onSaved={(createdRow) => {
+                      toast.success(`Item "${line.name}" saved to Master!`);
+                      // Update line ref_id if created
+                      if (createdRow?.id) {
+                        setLines((prev) =>
+                          prev.map((l, i) =>
+                            i === editingMasterItemIndex ? { ...l, ref_id: createdRow.id as string } : l,
+                          ),
+                        );
+                      }
+                      setSyncedItemMap((prev) => ({ ...prev, [editingMasterItemIndex]: true }));
+                      setEditingMasterItemIndex(null);
+                      qc.invalidateQueries({ queryKey: [table] });
+                    }}
+                    onCancel={() => setEditingMasterItemIndex(null)}
+                    submitLabel="Save Item to Master"
+                  />
+                </div>
+              );
+            })()}
+
             {/* Vendor confirmation */}
             {extractedVendorData && !vendorId ? (
               <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/40">
@@ -1376,7 +1457,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 ) : (
                   lines.map((l, idx) => {
                     if (!l.name.trim()) return null;
-                    const isMatched = !!l.ref_id;
+                    const isMatched = !!l.ref_id || !!syncedItemMap[idx];
                     const isChecked = linesToSyncMaster[idx] ?? true;
 
                     return (
@@ -1418,18 +1499,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                               variant="secondary"
                               size="sm"
                               className="h-7 text-[11px] px-2 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800"
-                              onClick={async () => {
-                                setShowApprovalConfirmModal(false);
-                                if (syncVendorToMaster && extractedVendorData && !vendorId) {
-                                  await handleCreateExtractedVendor();
-                                }
-                                save.mutate({
-                                  approve: true,
-                                  syncMasters: true,
-                                  lineIndicesToSync: [idx],
-                                  redirectToMasters: true,
-                                });
-                              }}
+                              onClick={() => setEditingMasterItemIndex(idx)}
                             >
                               Edit in Master
                             </Button>
