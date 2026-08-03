@@ -316,6 +316,25 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     }
   }, [vendorId, vendorRow, vendors.data]);
 
+  // Auto-fill item code from master when ref_id is set but code is empty
+  useEffect(() => {
+    const allItems = [
+      ...(items.data ?? []),
+      ...(assets.data ?? []),
+    ] as Record<string, unknown>[];
+    if (!allItems.length) return;
+
+    setLines((prev) =>
+      prev.map((l) => {
+        if (!l.ref_id || l.code) return l; // already has code or no ref
+        const masterItem = allItems.find((item) => item.id === l.ref_id);
+        if (!masterItem) return l;
+        const masterCode = (masterItem.item_code || masterItem.asset_code || "") as string;
+        return masterCode ? { ...l, code: masterCode } : l;
+      }),
+    );
+  }, [items.data, assets.data]);
+
   const activeCompany = useMemo(() => {
     const list = (companies.data ?? []) as Array<Record<string, unknown>>;
     return (list.find((c) => c.is_default) ?? list[0]) as
@@ -1184,9 +1203,10 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                       </TableCell>
                       <TableCell className="w-[90px] align-middle">
                         <Input
-                          className="w-full font-mono text-xs"
+                          className={`w-full font-mono text-xs ${l.ref_id && l.code ? "bg-green-50 border-green-300 text-green-800" : ""}`}
                           value={l.code}
                           onChange={(e) => updateLine(i, { code: e.target.value })}
+                          title={l.ref_id && l.code ? "Auto-filled from Item Master" : undefined}
                         />
                       </TableCell>
                       <TableCell className="w-[80px] align-middle">
