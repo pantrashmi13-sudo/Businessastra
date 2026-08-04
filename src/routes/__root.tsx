@@ -8,7 +8,7 @@ import {
   Scripts,
   useNavigate,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -16,6 +16,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
 
 function NotFoundComponent() {
@@ -133,6 +134,40 @@ function AuthGate() {
   const navigate = useNavigate();
   const router = useRouter();
   const currentPath = router.state.location.pathname;
+  const [checkingCompany, setCheckingCompany] = useState(true);
+
+  // Check if user has a company (for onboarding redirect)
+  useEffect(() => {
+    if (loading || !session) {
+      setCheckingCompany(false);
+      return;
+    }
+
+    // Skip company check for onboarding and login pages
+    if (currentPath === "/onboarding" || currentPath === "/login") {
+      setCheckingCompany(false);
+      return;
+    }
+
+    const checkCompany = async () => {
+      try {
+        const { data } = await supabase
+          .from("companies")
+          .select("id")
+          .limit(1);
+
+        if (!data || data.length === 0) {
+          navigate({ to: "/onboarding", replace: true });
+        }
+      } catch {
+        // If check fails, continue normally
+      } finally {
+        setCheckingCompany(false);
+      }
+    };
+
+    checkCompany();
+  }, [session, loading, currentPath, navigate]);
 
   useEffect(() => {
     if (loading) return;
@@ -144,8 +179,8 @@ function AuthGate() {
     }
   }, [session, loading, currentPath, navigate]);
 
-  // Show spinner while checking auth status
-  if (loading) {
+  // Show spinner while checking auth status or company
+  if (loading || (session && checkingCompany && currentPath !== "/onboarding" && currentPath !== "/login")) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -153,8 +188,8 @@ function AuthGate() {
     );
   }
 
-  // Render Login page standalone without sidebar
-  if (currentPath === "/login" || !session) {
+  // Render Login page or Onboarding page standalone without sidebar
+  if (currentPath === "/login" || currentPath === "/onboarding" || !session) {
     return (
       <>
         <Outlet />

@@ -28,6 +28,8 @@ import {
 import { Plus, Search, Truck, Eye, Trash2, PackageCheck } from "lucide-react";
 import { toast } from "sonner";
 import { inr, num } from "@/lib/format";
+import { formatDate } from "@/lib/date-conversion";
+import { useDateFormat } from "@/hooks/use-date-format";
 
 interface DeliveryChallanRecord {
   id: string;
@@ -53,6 +55,7 @@ export function ChallanList() {
   const qc = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const dateFormat = useDateFormat();
 
   const challansQuery = useQuery({
     queryKey: ["delivery_challans", "list"],
@@ -205,7 +208,7 @@ export function ChallanList() {
                   <TableCell className="font-semibold text-primary font-mono">
                     {c.challan_number}
                   </TableCell>
-                  <TableCell className="text-sm">{c.challan_date}</TableCell>
+                  <TableCell className="text-sm">{formatDate(c.challan_date, dateFormat)}</TableCell>
                   <TableCell>
                     <div className="font-medium text-foreground">{c.customer?.name || "Unassigned"}</div>
                     {c.customer?.vat_number ? (

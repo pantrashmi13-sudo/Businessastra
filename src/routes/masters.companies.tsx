@@ -6,11 +6,13 @@ export const Route = createFileRoute("/masters/companies")({
   component: () => (
     <MasterCrudPage
       title="Companies"
-      description="Your legal entities. VAT Number and state drive tax calculations on bills."
+      description="Your legal entity. VAT/PAN details are used for tax calculations on bills."
       table="companies"
       schema={companySchema}
       fields={companyFields}
       searchKeys={["name", "vat_number", "city", "state"]}
+      disableNew={true}
+      disableDelete={true}
       columns={[
         { key: "name", label: "Name" },
         { key: "vat_number", label: "VAT Number" },

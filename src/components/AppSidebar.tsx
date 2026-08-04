@@ -10,6 +10,7 @@ import {
   Receipt,
   BookOpen,
   LogOut,
+  Calculator,
 } from "lucide-react";
 
 import {
@@ -41,6 +42,7 @@ const bills = [
   { title: "New Bill", url: "/bills/new", icon: Receipt },
   { title: "Delivery Challans", url: "/challans", icon: Truck },
   { title: "Vendor Ledger", url: "/ledgers", icon: BookOpen },
+  { title: "VAT Register", url: "/vat-register", icon: Calculator },
 ];
 
 export function AppSidebar() {

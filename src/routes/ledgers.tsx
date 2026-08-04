@@ -22,6 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { inr } from "@/lib/format";
+import { formatDate } from "@/lib/date-conversion";
+import { useDateFormat } from "@/hooks/use-date-format";
 
 export const Route = createFileRoute("/ledgers")({
   component: LedgersPage,
@@ -30,6 +32,7 @@ export const Route = createFileRoute("/ledgers")({
 function LedgersPage() {
   const [vendorFilter, setVendorFilter] = useState<string>("all");
   const [q, setQ] = useState("");
+  const dateFormat = useDateFormat();
 
   const vendors = useQuery({
     queryKey: ["vendors", "list"],
@@ -163,7 +166,7 @@ function LedgersPage() {
                 rowsWithBalance.map((r) => (
                   <TableRow key={r.id as string}>
                     <TableCell className="text-muted-foreground">
-                      {r.date as string}
+                      {formatDate(r.date as string, dateFormat)}
                     </TableCell>
                     <TableCell className="font-medium">
                       {(r.vendors as { name?: string })?.name ?? "—"}

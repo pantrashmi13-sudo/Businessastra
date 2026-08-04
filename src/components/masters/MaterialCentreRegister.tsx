@@ -56,6 +56,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { inr, num } from "@/lib/format";
+import { formatDate } from "@/lib/date-conversion";
+import { useDateFormat } from "@/hooks/use-date-format";
 import { MasterForm } from "./MasterForm";
 import { itemSchema, itemFields } from "./schemas";
 
@@ -67,6 +69,7 @@ interface ItemRecord {
   category?: string | null;
   parent_category?: string | null;
   sub_parent_category?: string | null;
+  sub_category?: string | null;
   hsn_code?: string | null;
   default_rate: number;
   vat_rate: number;
@@ -105,6 +108,7 @@ export function MaterialCentreRegister() {
   const navigate = useNavigate();
   const search = useSearch({ strict: false });
   const returnBillId = (search as any)?.returnBillId;
+  const dateFormat = useDateFormat();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "goods" | "services">("all");
@@ -113,6 +117,12 @@ export function MaterialCentreRegister() {
   const [editingItem, setEditingItem] = useState<ItemRecord | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [selectedItemCode, setSelectedItemCode] = useState<string | null>(null);
+
+  // Category filters (multi-select)
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterParentCategory, setFilterParentCategory] = useState<string>("all");
+  const [filterSubParentCategory, setFilterSubParentCategory] = useState<string>("all");
+  const [filterSubCategory, setFilterSubCategory] = useState<string>("all");
 
   // Fetch all inventory items
   const itemsQuery = useQuery({
@@ -244,12 +254,18 @@ export function MaterialCentreRegister() {
     }));
   }, [itemsQuery.data]);
 
-  // Filter items based on search and category
+  // Filter items based on search, type, and category hierarchy
   const filteredItems = useMemo(() => {
     return groupedItems.filter((item) => {
       // Type filter
       if (filterType === "goods" && item.is_service) return false;
       if (filterType === "services" && !item.is_service) return false;
+
+      // Category hierarchy filters
+      if (filterCategory !== "all" && item.category !== filterCategory) return false;
+      if (filterParentCategory !== "all" && item.parent_category !== filterParentCategory) return false;
+      if (filterSubParentCategory !== "all" && item.sub_parent_category !== filterSubParentCategory) return false;
+      if (filterSubCategory !== "all" && item.sub_category !== filterSubCategory) return false;
 
       // Search filter
       if (!searchQuery.trim()) return true;
@@ -261,10 +277,44 @@ export function MaterialCentreRegister() {
         (item.warehouse && item.warehouse.toLowerCase().includes(q)) ||
         (item.category && item.category.toLowerCase().includes(q)) ||
         (item.parent_category && item.parent_category.toLowerCase().includes(q)) ||
-        (item.sub_parent_category && item.sub_parent_category.toLowerCase().includes(q))
+        (item.sub_parent_category && item.sub_parent_category.toLowerCase().includes(q)) ||
+        (item.sub_category && item.sub_category.toLowerCase().includes(q))
       );
     });
-  }, [groupedItems, filterType, searchQuery]);
+  }, [groupedItems, filterType, searchQuery, filterCategory, filterParentCategory, filterSubParentCategory, filterSubCategory]);
+
+  // Unique category values for filter dropdowns
+  const uniqueCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of groupedItems) {
+      if (item.category) set.add(item.category);
+    }
+    return Array.from(set).sort();
+  }, [groupedItems]);
+
+  const uniqueParentCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of groupedItems) {
+      if (item.parent_category) set.add(item.parent_category);
+    }
+    return Array.from(set).sort();
+  }, [groupedItems]);
+
+  const uniqueSubParentCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of groupedItems) {
+      if (item.sub_parent_category) set.add(item.sub_parent_category);
+    }
+    return Array.from(set).sort();
+  }, [groupedItems]);
+
+  const uniqueSubCategories = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of groupedItems) {
+      if (item.sub_category) set.add(item.sub_category);
+    }
+    return Array.from(set).sort();
+  }, [groupedItems]);
 
   // Overall Statistics
   const stats = useMemo(() => {
@@ -529,48 +579,110 @@ export function MaterialCentreRegister() {
       </div>
 
       {/* Filter and Search Bar with UOM Mode Toggle */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search code, name, HSN, warehouse…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* UOM View Mode Toggle */}
-          <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 text-xs">
-            <span className="text-muted-foreground px-1.5 font-medium">Display UOM:</span>
-            <Button
-              size="sm"
-              type="button"
-              variant={uomMode === "main" ? "default" : "ghost"}
-              className="h-7 text-xs px-2.5"
-              onClick={() => setUomMode("main")}
-            >
-              Main UOM
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              variant={uomMode === "alt" ? "default" : "ghost"}
-              className="h-7 text-xs px-2.5"
-              onClick={() => setUomMode("alt")}
-            >
-              Alt UOM
-            </Button>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search code, name, HSN, warehouse…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
           </div>
 
-          <Tabs value={filterType} onValueChange={(v) => setFilterType(v as any)} className="w-auto">
-            <TabsList>
-              <TabsTrigger value="all">All ({groupedItems.length})</TabsTrigger>
-              <TabsTrigger value="goods">Inventory Goods</TabsTrigger>
-              <TabsTrigger value="services">Services</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* UOM View Mode Toggle */}
+            <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 text-xs">
+              <span className="text-muted-foreground px-1.5 font-medium">Display UOM:</span>
+              <Button
+                size="sm"
+                type="button"
+                variant={uomMode === "main" ? "default" : "ghost"}
+                className="h-7 text-xs px-2.5"
+                onClick={() => setUomMode("main")}
+              >
+                Main UOM
+              </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant={uomMode === "alt" ? "default" : "ghost"}
+                className="h-7 text-xs px-2.5"
+                onClick={() => setUomMode("alt")}
+              >
+                Alt UOM
+              </Button>
+            </div>
+
+            <Tabs value={filterType} onValueChange={(v) => setFilterType(v as any)} className="w-auto">
+              <TabsList>
+                <TabsTrigger value="all">All ({groupedItems.length})</TabsTrigger>
+                <TabsTrigger value="goods">Inventory Goods</TabsTrigger>
+                <TabsTrigger value="services">Services</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        </div>
+
+        {/* Category Hierarchy Filters */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Category Filters:</span>
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+          >
+            <option value="all">All Categories</option>
+            {uniqueCategories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={filterParentCategory}
+            onChange={(e) => setFilterParentCategory(e.target.value)}
+          >
+            <option value="all">All Parent Categories</option>
+            {uniqueParentCategories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={filterSubParentCategory}
+            onChange={(e) => setFilterSubParentCategory(e.target.value)}
+          >
+            <option value="all">All Sub-Parent</option>
+            {uniqueSubParentCategories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={filterSubCategory}
+            onChange={(e) => setFilterSubCategory(e.target.value)}
+          >
+            <option value="all">All Sub-Categories</option>
+            {uniqueSubCategories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          {(filterCategory !== "all" || filterParentCategory !== "all" || filterSubParentCategory !== "all" || filterSubCategory !== "all") && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => {
+                setFilterCategory("all");
+                setFilterParentCategory("all");
+                setFilterSubParentCategory("all");
+                setFilterSubCategory("all");
+              }}
+            >
+              Clear Filters
+            </Button>
+          )}
         </div>
       </div>
 
@@ -583,7 +695,6 @@ export function MaterialCentreRegister() {
               <TableHead className="min-w-[200px]">Item / Material Name</TableHead>
               <TableHead className="w-[90px]">UOM ({uomMode === "alt" ? "Alt" : "Main"})</TableHead>
               <TableHead className="w-[110px] text-right">Stock Qty</TableHead>
-              <TableHead className="w-[120px] text-right">Purchase Rate</TableHead>
               <TableHead className="w-[120px] text-right">Selling Price</TableHead>
               <TableHead className="w-[130px] text-right">Total Value</TableHead>
               <TableHead className="w-[120px]">Warehouse</TableHead>
@@ -594,13 +705,13 @@ export function MaterialCentreRegister() {
           <TableBody>
             {itemsQuery.isLoading ? (
               <TableRow>
-                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                   Loading Material Centre Register…
                 </TableCell>
               </TableRow>
             ) : filteredItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
                   No items found. Click <b>Add Item</b> to register a new material.
                 </TableCell>
               </TableRow>
@@ -631,6 +742,9 @@ export function MaterialCentreRegister() {
                         {item.category ? (
                           <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
                             {item.category}
+                            {item.parent_category ? ` > ${item.parent_category}` : ""}
+                            {item.sub_parent_category ? ` > ${item.sub_parent_category}` : ""}
+                            {item.sub_category ? ` > ${item.sub_category}` : ""}
                           </span>
                         ) : null}
                       </div>
@@ -651,7 +765,6 @@ export function MaterialCentreRegister() {
                         <div className="text-[10px] text-amber-600 font-normal">Reorder alert</div>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-right">{inr(item.default_rate)}</TableCell>
                     <TableCell className="text-right">{inr(item.selling_price)}</TableCell>
                     <TableCell className="text-right font-semibold">{inr(totalValue)}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">
@@ -773,11 +886,11 @@ export function MaterialCentreRegister() {
                                     {m.type === "inward" ? "Inward" : "Outward"}
                                   </Badge>
                                 </TableCell>
-                                <TableCell className="text-xs">{m.date}</TableCell>
+                                <TableCell className="text-xs">{formatDate(m.date, dateFormat)}</TableCell>
                                 <TableCell className="font-medium text-xs font-mono">{m.docNumber}</TableCell>
                                 <TableCell className="text-xs font-medium">{m.partyName}</TableCell>
                                 <TableCell className="font-mono text-xs">{m.lot_number || "—"}</TableCell>
-                                <TableCell className="text-xs">{m.expiry_date || "—"}</TableCell>
+                                <TableCell className="text-xs">{formatDate(m.expiry_date, dateFormat)}</TableCell>
                                 <TableCell className="text-xs">
                                   {ageDays !== null ? (
                                     <Badge variant="secondary" className="text-[10px]">
@@ -861,7 +974,7 @@ export function MaterialCentreRegister() {
                                   return (
                                     <TableRow key={idx}>
                                       <TableCell className="font-mono text-xs font-medium">{lot.lotNumber}</TableCell>
-                                      <TableCell className="text-xs">{lot.expiryDate}</TableCell>
+                                       <TableCell className="text-xs">{formatDate(lot.expiryDate, dateFormat)}</TableCell>
                                       <TableCell>{getExpiryBadge(lot.expiryDate)}</TableCell>
                                       <TableCell className="text-right font-mono font-semibold text-xs text-primary">
                                         {num(lotQty)} {lotUom}
@@ -904,12 +1017,12 @@ export function MaterialCentreRegister() {
                       <p className="font-medium">{activeDetailItem.sub_parent_category || "—"}</p>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-xs text-muted-foreground">Warehouse</span>
-                      <p className="font-medium">{activeDetailItem.warehouse || "Main"}</p>
+                      <span className="text-xs text-muted-foreground">Sub-Category</span>
+                      <p className="font-medium">{activeDetailItem.sub_category || "—"}</p>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-xs text-muted-foreground">Purchase Rate</span>
-                      <p className="font-medium">{inr(activeDetailItem.default_rate)}</p>
+                      <span className="text-xs text-muted-foreground">Warehouse</span>
+                      <p className="font-medium">{activeDetailItem.warehouse || "Main"}</p>
                     </div>
                     <div className="space-y-1">
                       <span className="text-xs text-muted-foreground">Selling Price</span>

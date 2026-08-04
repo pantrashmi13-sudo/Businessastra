@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as VatRegisterRouteImport } from './routes/vat-register'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LedgersRouteImport } from './routes/ledgers'
 import { Route as IndexRouteImport } from './routes/index'
@@ -24,6 +26,16 @@ import { Route as ChallansIdRouteImport } from './routes/challans.$id'
 import { Route as BillsNewRouteImport } from './routes/bills.new'
 import { Route as BillsIdRouteImport } from './routes/bills.$id'
 
+const VatRegisterRoute = VatRegisterRouteImport.update({
+  id: '/vat-register',
+  path: '/vat-register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -99,6 +111,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
+  '/vat-register': typeof VatRegisterRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
   '/challans/$id': typeof ChallansIdRoute
@@ -115,6 +129,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
+  '/vat-register': typeof VatRegisterRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
   '/challans/$id': typeof ChallansIdRoute
@@ -132,6 +148,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
+  '/onboarding': typeof OnboardingRoute
+  '/vat-register': typeof VatRegisterRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
   '/challans/$id': typeof ChallansIdRoute
@@ -150,6 +168,8 @@ export interface FileRouteTypes {
     | '/'
     | '/ledgers'
     | '/login'
+    | '/onboarding'
+    | '/vat-register'
     | '/bills/$id'
     | '/bills/new'
     | '/challans/$id'
@@ -166,6 +186,8 @@ export interface FileRouteTypes {
     | '/'
     | '/ledgers'
     | '/login'
+    | '/onboarding'
+    | '/vat-register'
     | '/bills/$id'
     | '/bills/new'
     | '/challans/$id'
@@ -182,6 +204,8 @@ export interface FileRouteTypes {
     | '/'
     | '/ledgers'
     | '/login'
+    | '/onboarding'
+    | '/vat-register'
     | '/bills/$id'
     | '/bills/new'
     | '/challans/$id'
@@ -199,6 +223,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LedgersRoute: typeof LedgersRoute
   LoginRoute: typeof LoginRoute
+  OnboardingRoute: typeof OnboardingRoute
+  VatRegisterRoute: typeof VatRegisterRoute
   BillsIdRoute: typeof BillsIdRoute
   BillsNewRoute: typeof BillsNewRoute
   ChallansIdRoute: typeof ChallansIdRoute
@@ -214,6 +240,20 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/vat-register': {
+      id: '/vat-register'
+      path: '/vat-register'
+      fullPath: '/vat-register'
+      preLoaderRoute: typeof VatRegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -319,6 +359,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LedgersRoute: LedgersRoute,
   LoginRoute: LoginRoute,
+  OnboardingRoute: OnboardingRoute,
+  VatRegisterRoute: VatRegisterRoute,
   BillsIdRoute: BillsIdRoute,
   BillsNewRoute: BillsNewRoute,
   ChallansIdRoute: ChallansIdRoute,

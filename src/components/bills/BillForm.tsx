@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { type DateFormat, formatDate, adToBsInput, bsInputToAd } from "@/lib/date-conversion";
 import {
   Dialog,
   DialogContent,
@@ -139,6 +140,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const [billType, setBillType] = useState<BillType>(
     (existing?.bill_type as BillType) || initialType,
   );
+  const [formSegment, setFormSegment] = useState<1 | 2>(1);
   const billTypeRef = useRef(billType);
   billTypeRef.current = billType;
   const [ocrTaxType, setOcrTaxType] = useState<string | null>(
@@ -341,6 +343,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
       | Record<string, unknown>
       | undefined;
   }, [companies.data]);
+
+  const companyDateFormat = (activeCompany?.date_format as DateFormat) || "ad";
 
   const computedTotals = useMemo(
     () =>
@@ -598,6 +602,15 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
   const save = useMutation({
     mutationFn: async (opts: { approve: boolean; syncMasters?: boolean; lineIndicesToSync?: number[]; redirectToMasters?: boolean }) => {
+      // Validate required fields
+      if (!vendorId) {
+        throw new Error("Vendor name is required. Please select or add a vendor before saving.");
+      }
+      const validLines = lines.filter((l) => l.name.trim());
+      if (validLines.length === 0) {
+        throw new Error("At least one item is required. Please add at least one line item before saving.");
+      }
+
       const payload: Record<string, unknown> = {
         bill_type: billType,
         vendor_id: vendorId,
@@ -674,7 +687,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         }
 
         if (foundDup) {
-          const dateStr = foundDup.invoice_date ? ` dated ${foundDup.invoice_date}` : "";
+          const dateStr = foundDup.invoice_date ? ` dated ${formatDate(foundDup.invoice_date, companyDateFormat)}` : "";
           throw new Error(
             `Duplicate bill detected — Bill #${billNumber}${dateStr} (₹${foundDup.final_amount}) already exists. ` +
             `Please review the existing bill before saving.`,
@@ -883,6 +896,24 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     onError: (e) => toast.error((e as Error).message),
   });
 
+  const deleteBill = useMutation({
+    mutationFn: async () => {
+      if (!billId) throw new Error("No bill to delete");
+      // Delete bill lines first
+      await supabase.from("bill_lines").delete().eq("bill_id", billId);
+      // Delete ledger entries
+      await supabase.from("ledgers").delete().eq("bill_id", billId);
+      // Delete the bill
+      const { error } = await supabase.from("bills").delete().eq("id", billId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Bill deleted");
+      navigate({ to: "/bills" });
+    },
+    onError: (e) => toast.error(`Failed to delete: ${(e as Error).message}`),
+  });
+
   const isServiceMode = billType === "services";
   const isApproved = existing?.status === "approved";
 
@@ -905,166 +936,169 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           <div className="flex items-center gap-2">
             {isApproved ? (
               <Badge variant="secondary" className="bg-success text-success-foreground">
-                <CheckCircle2 className="mr-1 h-3 w-3" /> Approved
+                <CheckCircle2 className="mr-1 h-3 w-3" /> Approved (Locked)
               </Badge>
             ) : (
-              <Badge variant="outline">Draft</Badge>
+              <>
+                <Badge variant="outline">Draft</Badge>
+                <Button
+                  variant="outline"
+                  onClick={() => save.mutate({ approve: false })}
+                  disabled={save.isPending || creatingVendor}
+                >
+                  <Save className="mr-1 h-4 w-4" /> Save Draft
+                </Button>
+                <Button
+                  onClick={() => {
+                    const initialLinesToSync: Record<string, boolean> = {};
+                    lines.forEach((l, idx) => {
+                      if (l.name.trim()) initialLinesToSync[idx] = true;
+                    });
+                    setLinesToSyncMaster(initialLinesToSync);
+                    setSyncVendorToMaster(true);
+                    setShowApprovalConfirmModal(true);
+                  }}
+                  disabled={save.isPending || creatingVendor}
+                >
+                  <CheckCircle2 className="mr-1 h-4 w-4" /> Approve &amp; Save
+                </Button>
+                {!isNew && (
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      if (confirm("Are you sure you want to delete this draft bill?")) {
+                        deleteBill.mutate();
+                      }
+                    }}
+                    disabled={deleteBill.isPending}
+                  >
+                    Delete
+                  </Button>
+                )}
+              </>
             )}
-            <Button
-              variant="outline"
-              onClick={() => save.mutate({ approve: false })}
-              disabled={save.isPending || creatingVendor}
-            >
-              <Save className="mr-1 h-4 w-4" /> Save Draft
-            </Button>
-            <Button
-              onClick={() => {
-                const initialLinesToSync: Record<string, boolean> = {};
-                lines.forEach((l, idx) => {
-                  if (l.name.trim()) initialLinesToSync[idx] = true;
-                });
-                setLinesToSyncMaster(initialLinesToSync);
-                setSyncVendorToMaster(true);
-                setShowApprovalConfirmModal(true);
-              }}
-              disabled={save.isPending || creatingVendor}
-            >
-              <CheckCircle2 className="mr-1 h-4 w-4" /> Approve &amp; Save
-            </Button>
           </div>
         }
       />
 
       <div className="space-y-4 p-6">
-        {/* Type selector + upload */}
-        <Card>
-          <CardContent className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-[220px_1fr]">
-            <div>
-              <Label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Bill Type
-              </Label>
-              <Select value={billType} onValueChange={(v) => setBillType(v as BillType)} disabled={!isNew}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="items">Items / Inventory</SelectItem>
-                  <SelectItem value="services">Services</SelectItem>
-                  <SelectItem value="fixed_assets">Fixed Assets</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Upload Bill (PDF or image) — AI will extract details
-              </Label>
-              <div className="flex items-center gap-2">
-                <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground hover:bg-muted">
-                  <Upload className="h-4 w-4" />
-                  {uploading || extracting ? (
-                    <span className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {extracting ? "Extracting with AI…" : "Uploading…"}
-                    </span>
-                  ) : attachmentUrl ? (
-                    <a
-                      href={attachmentUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary underline"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      View uploaded file
-                    </a>
-                  ) : (
-                    <span>Click to upload PDF / JPG / PNG</span>
-                  )}
-                  <input
-                    type="file"
-                    accept="application/pdf,image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleFile(f);
-                    }}
-                  />
-                </label>
-                {attachmentUrl ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setAttachmentUrl(null);
-                      setAttachmentPath(null);
-                      setOcrRawText(null);
-                      setShowOcrText(false);
-                      setValidationErrors(null);
-                    }}
-                  >
-                    Remove
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* OCR Extracted Info Panel */}
-        {ocrRawText && (
-          <Card>
-            <CardHeader
-              className="cursor-pointer select-none py-3"
-              onClick={() => setShowOcrText(!showOcrText)}
-            >
-              <CardTitle className="flex items-center justify-between text-base">
-                <span>OCR Extracted Text</span>
-                <span className="text-xs font-normal text-muted-foreground">
-                  {showOcrText ? "Click to collapse" : "Click to expand"}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            {showOcrText && (
-              <CardContent>
-                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-4 text-xs leading-relaxed">
-                  {ocrRawText}
-                </pre>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Review the extracted text above and fill in the bill details manually below. Vendor and date have been auto-filled where possible.
-                </p>
-              </CardContent>
-            )}
-          </Card>
-        )}
-
-        {/* Validation Errors */}
-        {validationErrors && validationErrors.length > 0 && (
-          <Card className="border-destructive/50 bg-destructive/5">
-            <CardHeader className="py-3">
-              <CardTitle className="text-base text-destructive">
-                Extraction Warnings
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="list-disc space-y-1 pl-4 text-sm text-destructive">
-                {validationErrors.map((err, i) => (
-                  <li key={i}>{err}</li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Some values may be inaccurate. Please review the bill details below and correct any issues before saving.
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        {/* Segment 1: OCR + Bill Details */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Bill Details</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
+          <CardContent className="space-y-4">
+            {/* Upload Section */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_1fr]">
+              <div>
+                <Label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Bill Type
+                </Label>
+                <Select value={billType} onValueChange={(v) => setBillType(v as BillType)} disabled={!isNew}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="items">Items / Inventory</SelectItem>
+                    <SelectItem value="services">Services</SelectItem>
+                    <SelectItem value="fixed_assets">Fixed Assets</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Upload Bill (PDF or image) — AI will extract details
+                </Label>
+                <div className="flex items-center gap-2">
+                  <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground hover:bg-muted">
+                    <Upload className="h-4 w-4" />
+                    {uploading || extracting ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {extracting ? "Extracting with AI…" : "Uploading…"}
+                      </span>
+                    ) : attachmentUrl ? (
+                      <a
+                        href={attachmentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        View uploaded file
+                      </a>
+                    ) : (
+                      <span>Click to upload PDF / JPG / PNG</span>
+                    )}
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleFile(f);
+                      }}
+                    />
+                  </label>
+                  {attachmentUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setAttachmentUrl(null);
+                        setAttachmentPath(null);
+                        setOcrRawText(null);
+                        setShowOcrText(false);
+                        setValidationErrors(null);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {/* OCR Extracted Text (collapsible) */}
+            {ocrRawText && (
+              <div
+                className="cursor-pointer select-none rounded-md border border-border bg-muted/30 p-3"
+                onClick={() => setShowOcrText(!showOcrText)}
+              >
+                <div className="flex items-center justify-between text-sm font-medium">
+                  <span>OCR Extracted Text</span>
+                  <span className="text-xs text-muted-foreground">
+                    {showOcrText ? "Click to collapse" : "Click to expand"}
+                  </span>
+                </div>
+                {showOcrText && (
+                  <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs leading-relaxed">
+                    {ocrRawText}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {/* Validation Errors */}
+            {validationErrors && validationErrors.length > 0 && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3">
+                <p className="text-sm font-medium text-destructive">Extraction Warnings</p>
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-destructive">
+                  {validationErrors.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Please review and correct any issues before saving.
+                </p>
+              </div>
+            )}
+
+            {/* Vendor */}
+            <div>
               <Label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Vendor
+                Vendor *
               </Label>
               <EntityCombobox
                 value={vendorId}
@@ -1079,6 +1113,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 schema={vendorSchema}
                 fields={vendorFields}
                 nameKey="name"
+                disabled={isApproved}
               />
               {vendorSublabel ? (
                 <p className="mt-1 text-xs text-muted-foreground">{vendorSublabel}</p>
@@ -1112,33 +1147,77 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 </div>
               ) : null}
             </div>
-            <Field label="Bill Number">
-              <Input value={billNumber} onChange={(e) => setBillNumber(e.target.value)} />
-            </Field>
-            <Field label="Invoice Date">
-              <Input
-                type="date"
-                value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
-              />
-            </Field>
-            <Field label="PO Number">
-              <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
-            </Field>
-            <Field label="Internal Bill Number">
-              <Input
-                value={internalBillNumber}
-                onChange={(e) => setInternalBillNumber(e.target.value)}
-              />
-            </Field>
+
+            {/* Bill Fields */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Bill Number">
+                <Input value={billNumber} onChange={(e) => setBillNumber(e.target.value)} disabled={isApproved} />
+              </Field>
+              <Field label={`Invoice Date (${companyDateFormat.toUpperCase()})`}>
+                {companyDateFormat === "bs" ? (
+                  <Input
+                    type="date"
+                    value={adToBsInput(invoiceDate)}
+                    onChange={(e) => {
+                      const adDate = bsInputToAd(e.target.value);
+                      if (adDate) setInvoiceDate(adDate);
+                    }}
+                    disabled={isApproved}
+                  />
+                ) : (
+                  <Input
+                    type="date"
+                    value={invoiceDate}
+                    onChange={(e) => setInvoiceDate(e.target.value)}
+                    disabled={isApproved}
+                  />
+                )}
+              </Field>
+              <Field label="PO Number">
+                <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} disabled={isApproved} />
+              </Field>
+              <Field label="Internal Bill Number">
+                <Input
+                  value={internalBillNumber}
+                  onChange={(e) => setInternalBillNumber(e.target.value)}
+                  disabled={isApproved}
+                />
+              </Field>
+            </div>
+
+            {/* Next Button */}
+            {!isApproved && formSegment === 1 && (
+              <div className="flex justify-end pt-2">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (!vendorId) {
+                      toast.error("Please select a vendor before continuing.");
+                      return;
+                    }
+                    setFormSegment(2);
+                  }}
+                >
+                  Next: Add Line Items →
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Lines */}
+        {/* Segment 2: Line Items, Totals & Notes */}
+        {(isApproved || formSegment === 2) && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Line Items — {TYPE_LABEL[billType]}</CardTitle>
-            <Button size="sm" variant="outline" onClick={addLine}>
+            <div className="flex items-center gap-2">
+              {!isApproved && formSegment === 2 && (
+                <Button size="sm" variant="ghost" onClick={() => setFormSegment(1)}>
+                  ← Back
+                </Button>
+              )}
+              <CardTitle className="text-base">Line Items — {TYPE_LABEL[billType]}</CardTitle>
+            </div>
+            <Button size="sm" variant="outline" onClick={addLine} disabled={isApproved}>
               <Plus className="mr-1 h-4 w-4" /> Add Line
             </Button>
           </CardHeader>
@@ -1199,6 +1278,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           schema={billType === "fixed_assets" ? fixedAssetSchema : itemSchema}
                           fields={billType === "fixed_assets" ? fixedAssetFields : itemFields}
                           nameKey={billType === "fixed_assets" ? "asset_name" : "item_name"}
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[90px] align-middle">
@@ -1207,6 +1287,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           value={l.code}
                           onChange={(e) => updateLine(i, { code: e.target.value })}
                           title={l.ref_id && l.code ? "Auto-filled from Item Master" : undefined}
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[80px] align-middle">
@@ -1214,6 +1295,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           className="w-full text-xs"
                           value={l.uom}
                           onChange={(e) => updateLine(i, { uom: e.target.value })}
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[100px] align-middle">
@@ -1225,6 +1307,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           onChange={(e) =>
                             updateLine(i, { quantity: toNumber(e.target.value, 0) })
                           }
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[110px] align-middle">
@@ -1236,6 +1319,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           onChange={(e) =>
                             updateLine(i, { per_unit: toNumber(e.target.value, 0) })
                           }
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[80px] align-middle">
@@ -1247,6 +1331,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           onChange={(e) =>
                             updateLine(i, { vat_rate: toNumber(e.target.value, 0) })
                           }
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[110px] align-middle">
@@ -1254,6 +1339,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           className="w-full font-mono text-xs"
                           value={l.lot_number}
                           onChange={(e) => updateLine(i, { lot_number: e.target.value })}
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[140px] align-middle">
@@ -1262,6 +1348,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           className="w-full text-xs"
                           value={l.expiry_date}
                           onChange={(e) => updateLine(i, { expiry_date: e.target.value })}
+                          disabled={isApproved}
                         />
                       </TableCell>
                       <TableCell className="w-[110px] text-right font-medium align-middle">
@@ -1272,7 +1359,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           size="icon"
                           variant="ghost"
                           onClick={() => removeLine(i)}
-                          disabled={lines.length === 1}
+                          disabled={lines.length === 1 || isApproved}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
@@ -1283,75 +1370,75 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               </TableBody>
             </Table>
           </CardContent>
-        </Card>
 
-        {/* Totals */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Totals</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="space-y-3">
-              <TotalRow label="Taxable Amount" value={inr(totals.taxable_amount)} />
-              <NumField label="Exempted Amount" value={exempted} onChange={setExempted} />
-              <NumField label="Discount" value={discount} onChange={setDiscount} />
-              {!isServiceMode ? (
-                <NumField
-                  label="Transportation"
-                  value={transportation}
-                  onChange={setTransportation}
-                />
-              ) : null}
-              <NumField label="Other Charges" value={otherCharges} onChange={setOtherCharges} />
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <Label className="text-sm">{taxType === "pan" ? "Tax" : "VAT"}</Label>
-                <div className="flex items-center gap-1">
-                  <Input
-                    type="number"
-                    step="any"
-                    className="w-36 text-right"
-                    value={manualVat !== null ? manualVat : totals.vat_amount}
-                    onChange={(e) => setManualVat(toNumber(e.target.value, 0))}
+          {/* Totals Section */}
+          <div className="border-t">
+            <CardContent className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-2">
+              <div className="space-y-3">
+                <TotalRow label="Taxable Amount" value={inr(totals.taxable_amount)} />
+                <NumField label="Exempted Amount" value={exempted} onChange={setExempted} disabled={isApproved} />
+                <NumField label="Discount" value={discount} onChange={setDiscount} disabled={isApproved} />
+                {!isServiceMode ? (
+                  <NumField
+                    label="Transportation"
+                    value={transportation}
+                    onChange={setTransportation}
+                    disabled={isApproved}
                   />
-                  {manualVat !== null && (
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground shrink-0"
-                      onClick={() => setManualVat(null)}
-                      title="Reset to auto-calculated VAT"
-                    >
-                      ↺
-                    </button>
-                  )}
+                ) : null}
+                <NumField label="Other Charges" value={otherCharges} onChange={setOtherCharges} disabled={isApproved} />
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="text-sm">{taxType === "pan" ? "Tax" : "VAT"}</Label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      step="any"
+                      className="w-36 text-right"
+                      value={manualVat !== null ? manualVat : totals.vat_amount}
+                      onChange={(e) => setManualVat(toNumber(e.target.value, 0))}
+                      disabled={isApproved}
+                    />
+                    {manualVat !== null && (
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground shrink-0"
+                        onClick={() => setManualVat(null)}
+                        title="Reset to auto-calculated VAT"
+                      >
+                        ↺
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-6 rounded-md border border-primary/30 bg-primary/5 p-4">
+                  <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Final Bill Amount
+                  </div>
+                  <div className="mt-1 text-3xl font-bold text-primary">
+                    {inr(totals.final_amount)}
+                  </div>
                 </div>
               </div>
-              <div className="mt-6 rounded-md border border-primary/30 bg-primary/5 p-4">
-                <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Final Bill Amount
-                </div>
-                <div className="mt-1 text-3xl font-bold text-primary">
-                  {inr(totals.final_amount)}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Notes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Internal notes about this bill…"
-            />
-          </CardContent>
+          {/* Notes Section */}
+          <div className="border-t">
+            <CardContent className="pt-6">
+              <Label className="mb-2 block text-sm font-medium">Notes</Label>
+              <Textarea
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Internal notes about this bill…"
+                disabled={isApproved}
+              />
+            </CardContent>
+          </div>
         </Card>
+        )}
       </div>
 
       {/* Master Data Sync Confirmation Dialog on Bill Approval */}
@@ -1595,10 +1682,12 @@ function NumField({
   label,
   value,
   onChange,
+  disabled,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -1609,6 +1698,7 @@ function NumField({
         className="w-36 text-right"
         value={value}
         onChange={(e) => onChange(toNumber(e.target.value, 0))}
+        disabled={disabled}
       />
     </div>
   );

@@ -43,6 +43,8 @@ interface Props {
   fields: FieldDef[];
   columns: Array<{ key: string; label: string; render?: (v: unknown) => string }>;
   searchKeys: string[];
+  disableNew?: boolean;
+  disableDelete?: boolean;
 }
 
 export function MasterCrudPage({
@@ -53,6 +55,8 @@ export function MasterCrudPage({
   fields,
   columns,
   searchKeys,
+  disableNew = false,
+  disableDelete = false,
 }: Props) {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
@@ -108,7 +112,7 @@ export function MasterCrudPage({
             }}
           >
             <DialogTrigger asChild>
-              <Button onClick={() => setEditing(null)}>
+              <Button onClick={() => setEditing(null)} disabled={disableNew}>
                 <Plus className="mr-1 h-4 w-4" /> New
               </Button>
             </DialogTrigger>
@@ -183,13 +187,15 @@ export function MasterCrudPage({
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => setConfirmDelete(r.id as string)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      {!disableDelete && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setConfirmDelete(r.id as string)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))

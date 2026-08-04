@@ -5,8 +5,11 @@ const opt = z.string().trim().optional().or(z.literal("").transform(() => undefi
 
 export const companySchema = z.object({
   name: z.string().trim().min(1, "Name required").max(200),
+  tax_type: z.enum(["vat", "pan"]).default("vat"),
   vat_number: opt,
   pan: opt,
+  logo_url: opt,
+  date_format: z.enum(["ad", "bs"]).default("ad"),
   address: opt,
   state: opt,
   city: opt,
@@ -18,8 +21,11 @@ export const companySchema = z.object({
 
 export const companyFields: FieldDef[] = [
   { key: "name", label: "Company Name", colSpan: 2 },
-  { key: "vat_number", label: "VAT Number" },
-  { key: "pan", label: "PAN" },
+  { key: "tax_type", label: "Tax Type", type: "select", options: ["vat", "pan"] },
+  { key: "vat_number", label: "VAT Number", placeholder: "Enter VAT number if applicable" },
+  { key: "pan", label: "PAN Number", placeholder: "Enter PAN number if applicable" },
+  { key: "date_format", label: "Date Format", type: "select", options: ["ad", "bs"], placeholder: "AD = Gregorian, BS = Bikram Sambat" },
+  { key: "logo_url", label: "Logo URL", placeholder: "https://example.com/logo.png", colSpan: 2 },
   { key: "email", label: "Email", type: "email" },
   { key: "phone", label: "Phone" },
   { key: "state", label: "State" },
@@ -91,6 +97,10 @@ export const itemSchema = z.object({
   reorder_level: z.coerce.number().min(0).default(0),
   warehouse: opt,
   status: opt,
+  category: opt,
+  parent_category: opt,
+  sub_parent_category: opt,
+  sub_category: opt,
   alt_uom: opt,
   alt_uom_conversion: z.coerce.number().min(0).optional(),
   is_service: z.boolean().optional(),
@@ -102,8 +112,8 @@ export const itemFields: FieldDef[] = [
   { key: "uom", label: "Unit", placeholder: "Kg, Piece, Box, Liter…" },
   { key: "hsn_code", label: "HSN / SAC Code" },
   { key: "vat_rate", label: "VAT %", type: "number" },
-  { key: "default_rate", label: "Purchase Rate", type: "number" },
   { key: "selling_price", label: "Selling Price", type: "number" },
+  { key: "category", label: "Category", type: "category-group" as const },
   { key: "reorder_level", label: "Reorder Level", type: "number" },
   {
     key: "warehouse",

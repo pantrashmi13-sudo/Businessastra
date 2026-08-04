@@ -30,6 +30,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { inr } from "@/lib/format";
+import { formatDate } from "@/lib/date-conversion";
+import { useDateFormat } from "@/hooks/use-date-format";
 
 export const Route = createFileRoute("/bills/")({
   component: BillsList,
@@ -45,6 +47,7 @@ function BillsList() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [type, setType] = useState<string>("all");
+  const dateFormat = useDateFormat();
 
   const bills = useQuery({
     queryKey: ["bills", "list"],
@@ -171,7 +174,7 @@ function BillsList() {
                         {String(b.bill_type ?? "").replace("_", " ")}
                       </Badge>
                     </TableCell>
-                    <TableCell>{(b.invoice_date as string) || "—"}</TableCell>
+                    <TableCell>{formatDate(b.invoice_date as string, dateFormat)}</TableCell>
                     <TableCell>
                       {b.status === "approved" ? (
                         <Badge className="bg-success text-success-foreground">Approved</Badge>

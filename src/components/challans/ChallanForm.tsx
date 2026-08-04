@@ -39,6 +39,8 @@ import {
 import { EntityCombobox, type EntityOption } from "@/components/bills/EntityCombobox";
 import { customerSchema, customerFields } from "@/components/masters/schemas";
 import { inr, num, toNumber } from "@/lib/format";
+import { formatDate } from "@/lib/date-conversion";
+import { useDateFormat } from "@/hooks/use-date-format";
 
 interface ChallanLine {
   id?: string;
@@ -82,6 +84,7 @@ const emptyLine = (sno: number): ChallanLine => ({
 export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const dateFormat = useDateFormat();
 
   const existing = initial?.challan;
   const isNew = !challanId;
@@ -824,7 +827,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                                           <span className="font-mono font-semibold">{lot.lot_number}</span>
                                           <span className="text-[10px] text-muted-foreground">
                                             {displayQty > 0 ? `${num(displayQty)} ${l.uom}` : ""}
-                                            {lot.expiry_date ? ` · Exp: ${lot.expiry_date}` : ""}
+                                            {lot.expiry_date ? ` · Exp: ${formatDate(lot.expiry_date, dateFormat)}` : ""}
                                             {lotAge !== null ? ` · Age: ${lotAge}d` : ""}
                                           </span>
                                         </div>

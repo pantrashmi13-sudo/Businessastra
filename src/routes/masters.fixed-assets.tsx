@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { MasterCrudPage } from "@/components/masters/MasterCrudPage";
 import { fixedAssetSchema, fixedAssetFields } from "@/components/masters/schemas";
+import { useDateFormat } from "@/hooks/use-date-format";
+import { formatDate } from "@/lib/date-conversion";
 
-export const Route = createFileRoute("/masters/fixed-assets")({
-  component: () => (
+function FixedAssetsPage() {
+  const dateFormat = useDateFormat();
+
+  return (
     <MasterCrudPage
       title="Fixed Assets"
       description="Capitalized assets like machinery, furniture, IT equipment."
@@ -17,12 +21,16 @@ export const Route = createFileRoute("/masters/fixed-assets")({
         { key: "category", label: "Category" },
         { key: "qty", label: "Qty" },
         { key: "uom", label: "Unit" },
-        { key: "purchase_date", label: "Purchase Date" },
+        { key: "purchase_date", label: "Purchase Date", render: (v) => formatDate(v as string, dateFormat) },
         { key: "purchase_cost", label: "Purchase Cost" },
         { key: "total_cost", label: "Total Cost" },
         { key: "depreciation_method", label: "Depreciation" },
         { key: "status", label: "Status" },
       ]}
     />
-  ),
+  );
+}
+
+export const Route = createFileRoute("/masters/fixed-assets")({
+  component: FixedAssetsPage,
 });

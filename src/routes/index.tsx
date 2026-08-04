@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/PageHeader";
 import { Building2, Users, Truck, Package, Landmark, FileText, Plus } from "lucide-react";
 import { inr } from "@/lib/format";
+import { formatDate } from "@/lib/date-conversion";
+import { useDateFormat } from "@/hooks/use-date-format";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
@@ -25,6 +27,7 @@ const useCount = (table: string) =>
   });
 
 function Dashboard() {
+  const dateFormat = useDateFormat();
   const companies = useCount("companies");
   const customers = useCount("customers");
   const vendors = useCount("vendors");
@@ -108,7 +111,7 @@ function Dashboard() {
                         </span>
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {b.bill_type} · {b.invoice_date || ""} · {b.status}
+                        {b.bill_type} · {formatDate(b.invoice_date as string, dateFormat)} · {b.status}
                       </span>
                     </div>
                     <span className="font-semibold">{inr(Number(b.final_amount))}</span>
