@@ -2,10 +2,18 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Eye, EyeOff, BarChart3 } from "lucide-react";
+import { Loader2, Eye, EyeOff, BarChart3, BookOpen, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -53,7 +61,6 @@ function LoginPage() {
           toast.error(error.message || "Sign-up failed. Please try again.");
           return;
         }
-        // If session is immediately returned, email confirmation is disabled
         if (data.session) {
           toast.success("Account created! You are now signed in.");
           navigate({ to: "/" });
@@ -69,25 +76,82 @@ function LoginPage() {
     }
   }
 
-  return (
-    <div className="min-h-screen flex bg-background">
-      {/* Left brand panel */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white relative overflow-hidden">
-        {/* Decorative circles */}
-        <div className="absolute -top-24 -left-24 h-64 w-64 rounded-full bg-primary/20 blur-3xl" />
-        <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
+  const featureCards = [
+    { emoji: "🧾", title: "AI Bill OCR", desc: "Upload invoices and auto-extract all data" },
+    { emoji: "📦", title: "Live Inventory", desc: "Lot tracking, expiry dates & stock alerts" },
+    { emoji: "🚚", title: "Delivery Challans", desc: "Dispatch management with real-time stock" },
+    { emoji: "📊", title: "Vendor Ledger", desc: "Full purchase history & payment tracking" },
+  ];
 
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-lg shadow-lg">
-            L
+  const userManualSections = [
+    {
+      title: "1. AI Bill OCR & Purchase Entry",
+      content: "Upload vendor invoices in PDF or image format. The system automatically extracts invoice numbers, vendor details, items, quantities, and rates. Review and approve to automatically create purchase bills and update stock."
+    },
+    {
+      title: "2. Live Inventory & Stock Alerts",
+      content: "Track stock quantities in real time. Features lot/batch tracking, expiry date monitoring, low stock warnings, and automatic reorder recommendations."
+    },
+    {
+      title: "3. Delivery Challans & Dispatch",
+      content: "Create delivery challans for outgoing goods. Stock is automatically reserved and adjusted upon confirmation, maintaining synchronized inventory."
+    },
+    {
+      title: "4. Vendor Ledgers & VAT Registers",
+      content: "Generate comprehensive vendor statement ledgers, track payables, and automatically maintain dual AD/BS date-based VAT Purchase and Sales Registers for tax reporting."
+    }
+  ];
+
+  return (
+    <div className="min-h-screen flex flex-col lg:flex-row bg-background">
+      {/* Brand panel (Visible on Desktop as left side, visible on mobile as top section) */}
+      <div className="w-full lg:w-1/2 flex flex-col justify-between p-6 sm:p-8 lg:p-12 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white relative overflow-hidden">
+        {/* Decorative background glows */}
+        <div className="absolute -top-24 -left-24 h-64 w-64 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 h-96 w-96 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-lg shadow-lg">
+              L
+            </div>
+            <div>
+              <p className="font-semibold text-lg tracking-tight">Ledgerly</p>
+              <p className="text-xs text-white/50">Mini ERP</p>
+            </div>
           </div>
-          <div>
-            <p className="font-semibold text-lg tracking-tight">Ledgerly</p>
-            <p className="text-xs text-white/50">Mini ERP</p>
-          </div>
+
+          {/* User Manual Trigger Button */}
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white gap-2">
+                <BookOpen className="h-4 w-4" />
+                <span>User Manual</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  <HelpCircle className="h-5 w-5 text-primary" />
+                  Ledgerly User Manual
+                </SheetTitle>
+                <SheetDescription>
+                  Welcome to Ledgerly Mini ERP! Here is a quick guide to getting started with key features.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="mt-6 space-y-6 text-sm">
+                {userManualSections.map((sec) => (
+                  <div key={sec.title} className="rounded-lg border p-4 bg-muted/30">
+                    <h4 className="font-semibold text-foreground mb-1.5">{sec.title}</h4>
+                    <p className="text-muted-foreground leading-relaxed text-xs sm:text-sm">{sec.content}</p>
+                  </div>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
 
-        <div className="relative z-10 space-y-6">
+        <div className="relative z-10 my-8 lg:my-0 space-y-6">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/20 border border-primary/30">
               <BarChart3 className="h-6 w-6 text-primary" />
@@ -98,13 +162,8 @@ function LoginPage() {
             </div>
           </div>
 
-          <div className="space-y-4">
-            {[
-              { emoji: "🧾", title: "AI Bill OCR", desc: "Upload invoices and auto-extract all data" },
-              { emoji: "📦", title: "Live Inventory", desc: "Lot tracking, expiry dates & stock alerts" },
-              { emoji: "🚚", title: "Delivery Challans", desc: "Dispatch management with real-time stock" },
-              { emoji: "📊", title: "Vendor Ledger", desc: "Full purchase history & payment tracking" },
-            ].map((f) => (
+          <div className="space-y-3 sm:space-y-4">
+            {featureCards.map((f) => (
               <div key={f.title} className="flex items-start gap-3 rounded-xl bg-white/5 p-3 border border-white/10">
                 <span className="text-xl">{f.emoji}</span>
                 <div>
@@ -116,21 +175,13 @@ function LoginPage() {
           </div>
         </div>
 
-        <p className="relative z-10 text-xs text-white/30">
+        <p className="relative z-10 text-xs text-white/30 hidden lg:block">
           © 2026 Ledgerly. All rights reserved.
         </p>
       </div>
 
-      {/* Right auth panel */}
-      <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
-        {/* Mobile logo */}
-        <div className="mb-8 flex items-center gap-2 lg:hidden">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold">
-            L
-          </div>
-          <span className="text-xl font-semibold">Ledgerly</span>
-        </div>
-
+      {/* Auth panel */}
+      <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 lg:py-12 bg-background">
         <div className="w-full max-w-sm space-y-6">
           <div className="text-center">
             <h1 className="text-2xl font-bold tracking-tight">
@@ -221,6 +272,10 @@ function LoginPage() {
             )}
           </div>
         </div>
+
+        <p className="text-xs text-muted-foreground mt-8 lg:hidden">
+          © 2026 Ledgerly. All rights reserved.
+        </p>
       </div>
     </div>
   );
