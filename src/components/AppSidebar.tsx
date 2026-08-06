@@ -61,14 +61,14 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
-        <Link to="/" className="flex items-center gap-2 text-sidebar-foreground">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground font-bold">
-            L
+      <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
+        <Link to="/" className="flex items-center gap-3 text-sidebar-foreground">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white p-1 shadow-sm">
+            <img src="/bizastra-logo.png" alt="Bizastra Logo" className="h-full w-full object-contain" />
           </div>
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">Ledgerly</span>
-            <span className="text-xs text-sidebar-foreground/60">Mini ERP</span>
+            <span className="text-base font-bold text-primary tracking-tight">BIZASTRA</span>
+            <span className="text-[10px] text-sidebar-foreground/60 tracking-wider">STRATEGY. ELEVATION. GROWTH.</span>
           </div>
         </Link>
       </SidebarHeader>

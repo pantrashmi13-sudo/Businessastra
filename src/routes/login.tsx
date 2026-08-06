@@ -112,12 +112,12 @@ function LoginPage() {
 
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-lg shadow-lg">
-              L
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white p-1.5 shadow-lg">
+              <img src="/bizastra-logo.png" alt="Bizastra Logo" className="h-full w-full object-contain" />
             </div>
             <div>
-              <p className="font-semibold text-lg tracking-tight">Ledgerly</p>
-              <p className="text-xs text-white/50">Mini ERP</p>
+              <p className="font-bold text-xl tracking-tight text-white">BIZASTRA</p>
+              <p className="text-[10px] tracking-wider text-amber-400 font-semibold uppercase">Strategy. Elevation. Growth.</p>
             </div>
           </div>
 
@@ -131,12 +131,12 @@ function LoginPage() {
             </SheetTrigger>
             <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
               <SheetHeader>
-                <SheetTitle className="flex items-center gap-2">
-                  <HelpCircle className="h-5 w-5 text-primary" />
-                  Ledgerly User Manual
+                <SheetTitle className="flex items-center gap-2 text-primary">
+                  <HelpCircle className="h-5 w-5" />
+                  Bizastra User Manual
                 </SheetTitle>
                 <SheetDescription>
-                  Welcome to Ledgerly Mini ERP! Here is a quick guide to getting started with key features.
+                  Welcome to Bizastra! Here is a quick guide to getting started with your business features.
                 </SheetDescription>
               </SheetHeader>
               <div className="mt-6 space-y-6 text-sm">
@@ -176,7 +176,7 @@ function LoginPage() {
         </div>
 
         <p className="relative z-10 text-xs text-white/30 hidden lg:block">
-          © 2026 Ledgerly. All rights reserved.
+          © 2026 Bizastra. All rights reserved.
         </p>
       </div>
 
@@ -189,8 +189,8 @@ function LoginPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {mode === "signin"
-                ? "Sign in to continue to Ledgerly"
-                : "Get started with your ERP workspace"}
+                ? "Sign in to continue to Bizastra"
+                : "Get started with your Bizastra workspace"}
             </p>
           </div>
 
@@ -274,7 +274,7 @@ function LoginPage() {
         </div>
 
         <p className="text-xs text-muted-foreground mt-8 lg:hidden">
-          © 2026 Ledgerly. All rights reserved.
+          © 2026 Bizastra. All rights reserved.
         </p>
       </div>
     </div>

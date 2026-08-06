@@ -84,25 +84,25 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Ledgerly — Mini ERP for Bills, Vendors & Inventory" },
+      { title: "Bizastra — Strategy. Elevation. Growth." },
       {
         name: "description",
         content:
-          "Manage companies, customers, vendors, inventory and fixed assets. Upload bills and let AI extract every detail — approve and save in one click.",
+          "Manage companies, customers, vendors, inventory and fixed assets with Bizastra ERP.",
       },
-      { name: "author", content: "Ledgerly" },
-      { property: "og:title", content: "Ledgerly — Mini ERP" },
+      { name: "author", content: "Bizastra" },
+      { property: "og:title", content: "Bizastra — ERP & Business Management" },
       {
         property: "og:description",
         content:
-          "Masters + Bills & Purchase workflow with AI-powered bill capture, VAT breakdown, and one-click approval.",
+          "AI-powered bill capture, inventory management, delivery challans, and VAT reporting with Bizastra.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/bizastra-logo.png", type: "image/png" },
       {
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
@@ -206,8 +206,9 @@ function AuthGate() {
         <div className="flex flex-1 flex-col">
           <header className="flex h-12 items-center gap-2 border-b border-border bg-card px-3">
             <SidebarTrigger />
-            <div className="text-xs uppercase tracking-wider text-muted-foreground">
-              Ledgerly ERP
+            <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
+              <span>BIZASTRA</span>
+              <span className="text-[10px] text-muted-foreground/60">• STRATEGY. ELEVATION. GROWTH.</span>
             </div>
           </header>
           <main className="flex-1 overflow-x-auto">
