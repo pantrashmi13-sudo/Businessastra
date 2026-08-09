@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import type { ReactNode } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Search } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -30,7 +31,7 @@ import {
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "textarea" | "switch" | "email" | "select" | "category-group";
+  type?: "text" | "number" | "textarea" | "switch" | "email" | "select" | "category-group" | "pan-search";
   colSpan?: 1 | 2;
   placeholder?: string;
   options?: string[];
@@ -241,6 +242,35 @@ export function MasterForm<S extends z.ZodTypeAny>({
                     </div>
                   );
                 })()
+              ) : f.type === "pan-search" ? (
+                <div className="flex gap-2">
+                  <Input
+                    className="flex-1"
+                    placeholder={f.placeholder}
+                    {...form.register(f.key)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5"
+                    onClick={() => {
+                      const pan = String(form.getValues(f.key) ?? "").replace(/\D/g, "").trim();
+                      if (!pan) {
+                        toast.error("Enter a PAN/VAT number first");
+                        return;
+                      }
+                      window.open(
+                        `https://ird.gov.np/pan-search/?pan=${encodeURIComponent(pan)}`,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    Search PAN
+                  </Button>
+                </div>
               ) : (
                 <Input
                   type={f.type === "number" ? "number" : f.type === "email" ? "email" : "text"}

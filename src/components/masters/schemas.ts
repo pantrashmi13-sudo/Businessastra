@@ -48,7 +48,7 @@ export const customerSchema = z.object({
 });
 export const customerFields: FieldDef[] = [
   { key: "name", label: "Customer Name", colSpan: 2 },
-  { key: "vat_number", label: "VAT Number" },
+  { key: "vat_number", label: "VAT / PAN Number", type: "pan-search", placeholder: "Enter VAT or PAN number" },
   { key: "contact_person", label: "Contact Person" },
   { key: "email", label: "Email", type: "email" },
   { key: "phone", label: "Phone" },
@@ -73,7 +73,7 @@ export const vendorSchema = z.object({
 });
 export const vendorFields: FieldDef[] = [
   { key: "name", label: "Vendor Name", colSpan: 2 },
-  { key: "vat_number", label: "VAT Number" },
+  { key: "vat_number", label: "VAT / PAN Number", type: "pan-search", placeholder: "Enter VAT or PAN number" },
   { key: "pan", label: "PAN" },
   { key: "contact_person", label: "Contact Person" },
   { key: "email", label: "Email", type: "email" },
