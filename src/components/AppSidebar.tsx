@@ -11,6 +11,7 @@ import {
   BookOpen,
   LogOut,
   Calculator,
+  Banknote,
 } from "lucide-react";
 
 import {
@@ -43,6 +44,10 @@ const bills = [
   { title: "Delivery Challans", url: "/challans", icon: Truck },
   { title: "Vendor Ledger", url: "/ledgers", icon: BookOpen },
   { title: "VAT Register", url: "/vat-register", icon: Calculator },
+];
+
+const receiptPayment = [
+  { title: "Payment Vouchers", url: "/receipt-payment", icon: Banknote },
 ];
 
 export function AppSidebar() {
@@ -112,6 +117,24 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {bills.map((m) => (
+                <SidebarMenuItem key={m.url}>
+                  <SidebarMenuButton asChild isActive={isActive(m.url)}>
+                    <Link to={m.url}>
+                      <m.icon />
+                      <span>{m.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Receipt &amp; Payment</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {receiptPayment.map((m) => (
                 <SidebarMenuItem key={m.url}>
                   <SidebarMenuButton asChild isActive={isActive(m.url)}>
                     <Link to={m.url}>

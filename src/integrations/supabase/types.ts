@@ -493,6 +493,114 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_vouchers: {
+        Row: {
+          id: string
+          company_id: string | null
+          voucher_number: string
+          payee_type: Database["public"]["Enums"]["payee_type"]
+          vendor_id: string | null
+          payee_name: string | null
+          payment_mode: string
+          reference_number: string | null
+          payment_date: string
+          total_amount: number
+          adjustment_type: Database["public"]["Enums"]["payment_adjustment_type"]
+          remarks: string | null
+          status: Database["public"]["Enums"]["voucher_status"]
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id?: string | null
+          voucher_number: string
+          payee_type?: Database["public"]["Enums"]["payee_type"]
+          vendor_id?: string | null
+          payee_name?: string | null
+          payment_mode?: string
+          reference_number?: string | null
+          payment_date?: string
+          total_amount?: number
+          adjustment_type?: Database["public"]["Enums"]["payment_adjustment_type"]
+          remarks?: string | null
+          status?: Database["public"]["Enums"]["voucher_status"]
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string | null
+          voucher_number?: string
+          payee_type?: Database["public"]["Enums"]["payee_type"]
+          vendor_id?: string | null
+          payee_name?: string | null
+          payment_mode?: string
+          reference_number?: string | null
+          payment_date?: string
+          total_amount?: number
+          adjustment_type?: Database["public"]["Enums"]["payment_adjustment_type"]
+          remarks?: string | null
+          status?: Database["public"]["Enums"]["voucher_status"]
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_vouchers_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_vouchers_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_voucher_bills: {
+        Row: {
+          id: string
+          payment_voucher_id: string
+          bill_id: string
+          amount_applied: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          payment_voucher_id: string
+          bill_id: string
+          amount_applied?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          payment_voucher_id?: string
+          bill_id?: string
+          amount_applied?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_voucher_bills_payment_voucher_id_fkey"
+            columns: ["payment_voucher_id"]
+            isOneToOne: false
+            referencedRelation: "payment_vouchers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_voucher_bills_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "bills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -504,6 +612,9 @@ export type Database = {
       bill_status: "draft" | "approved"
       bill_type: "items" | "services" | "fixed_assets"
       line_ref_type: "item" | "service" | "asset"
+      payee_type: "vendor" | "other"
+      payment_adjustment_type: "bill_wise" | "simple"
+      voucher_status: "draft" | "final"
     }
     CompositeTypes: {
       [_ in never]: never
