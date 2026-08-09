@@ -546,7 +546,9 @@ export function MaterialCentreRegister() {
                           "Alt UOM Conversion",
                           "Opening Qty",
                           "Opening Rate",
-                          "Opening Value"
+                          "Opening Value",
+                          "Lot Number",
+                          "Expiry Date"
                         ];
                         const sampleRow = [
                           "ITEM-001",
@@ -565,7 +567,9 @@ export function MaterialCentreRegister() {
                           "10",
                           "50",
                           "1000",
-                          "50000"
+                          "50000",
+                          "LOT-1029",
+                          "2027-12-31"
                         ];
                         const csvContent = [headers.join(","), sampleRow.join(",")].join("\n");
                         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -669,6 +673,9 @@ export function MaterialCentreRegister() {
                                 const openingRate = Number(getVal("openingrate") || 0);
                                 const openingValue = Number(getVal("openingvalue") || (openingQty * openingRate));
                                 
+                                const lotNumber = getVal("lotnumber") || null;
+                                const expiryDate = getVal("expirydate") || getVal("expiry") || null;
+                                
                                 // Find if item exists
                                 const { data: existingItem } = await supabase
                                   .from("items")
@@ -755,6 +762,8 @@ export function MaterialCentreRegister() {
                                       quantity: openingQty,
                                       per_unit: openingRate,
                                       line_amount: openingValue,
+                                      lot_number: lotNumber,
+                                      expiry_date: expiryDate,
                                     };
                                     
                                     if (existingLine) {
