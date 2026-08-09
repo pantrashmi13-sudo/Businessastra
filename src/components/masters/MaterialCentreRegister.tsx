@@ -129,6 +129,14 @@ export function MaterialCentreRegister() {
   // Import state
   const [openImportDialog, setOpenImportDialog] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<{
+    newItems: { itemCode: string; itemName: string; openingQty: number; openingValue: number }[];
+    existingItems: { itemCode: string; itemName: string; openingQty: number; openingValue: number }[];
+    parsedRows: any[];
+    headers: string[];
+    companyId: string;
+  } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   // Fetch all inventory items
   const itemsQuery = useQuery({
@@ -508,7 +516,7 @@ export function MaterialCentreRegister() {
         description="Comprehensive Inventory Stock Register grouped by Item Code with Lot, Expiry & Movement Tracking."
         actions={
           <div className="flex gap-2">
-            <Dialog open={openImportDialog} onOpenChange={setOpenImportDialog}>
+            <Dialog open={openImportDialog} onOpenChange={(open) => { setOpenImportDialog(open); if (!open) setImportPreview(null); }}>
               <DialogTrigger asChild>
                 <Button variant="outline">
                   Import Opening Stocks
@@ -588,19 +596,17 @@ export function MaterialCentreRegister() {
                     <Input
                       type="file"
                       accept=".csv, .xlsx, .xls"
-                      disabled={importing}
+                      disabled={previewing || importing}
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        
-                        setImporting(true);
+                        setImportPreview(null);
+                        setPreviewing(true);
                         const reader = new FileReader();
                         const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
-                        
                         reader.onload = async (evt) => {
                           try {
                             let rows: any[][] = [];
-                            
                             if (isExcel) {
                               const data = new Uint8Array(evt.target?.result as ArrayBuffer);
                               const XLSX = await import("xlsx");
@@ -610,8 +616,6 @@ export function MaterialCentreRegister() {
                             } else {
                               const text = evt.target?.result as string;
                               if (!text) throw new Error("File empty");
-                              
-                              // Parse CSV lines
                               const rawRows = text.split(/\r?\n/);
                               for (const rawRow of rawRows) {
                                 if (!rawRow.trim()) continue;
@@ -620,206 +624,205 @@ export function MaterialCentreRegister() {
                                 let currentValue = "";
                                 for (let i = 0; i < rawRow.length; i++) {
                                   const char = rawRow[i];
-                                  if (char === '"') {
-                                    insideQuote = !insideQuote;
-                                  } else if (char === ',' && !insideQuote) {
-                                    values.push(currentValue.trim());
-                                    currentValue = "";
-                                  } else {
-                                    currentValue += char;
-                                  }
+                                  if (char === '"') { insideQuote = !insideQuote; }
+                                  else if (char === ',' && !insideQuote) { values.push(currentValue.trim()); currentValue = ""; }
+                                  else { currentValue += char; }
                                 }
                                 values.push(currentValue.trim());
                                 rows.push(values);
                               }
                             }
-                            
-                            if (rows.length < 2) {
-                              throw new Error("No data rows found in template");
-                            }
-                            
+                            if (rows.length < 2) throw new Error("No data rows found in template");
                             const headers = rows[0].map(h => String(h || "").toLowerCase().replace(/\s+/g, ""));
                             const dataRows = rows.slice(1);
-                            
-                            // Get default company
+                            const getVal = (row: any[], colName: string) => {
+                              const idx = headers.findIndex(h => h.includes(colName.replace(/\s+/g, "").toLowerCase()));
+                              return idx !== -1 ? String(row[idx] ?? "").trim() : "";
+                            };
+
+                            // Get company
                             const { data: companies } = await supabase.from("companies").select("id").eq("is_default", true).limit(1);
                             const companyId = companies?.[0]?.id || (await supabase.from("companies").select("id").limit(1))?.data?.[0]?.id;
-                            
-                            if (!companyId) {
-                              throw new Error("Please configure a company first");
-                            }
-                            
-                            let successCount = 0;
-                            let errorCount = 0;
-                            
+                            if (!companyId) throw new Error("Please configure a company first");
+
+                            // Fetch existing item codes in one query
+                            const itemCodes = dataRows.map(r => getVal(r, "itemcode")).filter(Boolean);
+                            const { data: existingItems } = await supabase
+                              .from("items")
+                              .select("item_code")
+                              .in("item_code", itemCodes);
+                            const existingCodes = new Set((existingItems || []).map(i => i.item_code));
+
+                            const newItems: any[] = [];
+                            const existingItemsPrev: any[] = [];
                             for (const row of dataRows) {
-                              try {
-                                const getVal = (colName: string) => {
-                                  const idx = headers.findIndex(h => h.includes(colName.replace(/\s+/g, "").toLowerCase()));
-                                  return idx !== -1 ? row[idx] : "";
-                                };
-                                
-                                const itemCode = getVal("itemcode");
-                                const itemName = getVal("itemname");
-                                if (!itemCode || !itemName) continue;
-                                
-                                const uom = getVal("unit") || "NOS";
-                                const hsnCode = getVal("hsncode") || null;
-                                const vatRate = Number(getVal("vatrate") || 5);
-                                const sellingPrice = Number(getVal("sellingprice") || 0);
-                                const category = getVal("category") || null;
-                                const parentCategory = getVal("parentcategory") || null;
-                                const subParentCategory = getVal("subparentcategory") || null;
-                                const subCategory = getVal("subcategory") || null;
-                                const warehouse = getVal("warehouse") || "Main Warehouse";
-                                const status = getVal("status") || "Active";
-                                const altUom = getVal("altuom") || null;
-                                const altUomConversion = getVal("altuomconversion") ? Number(getVal("altuomconversion")) : null;
-                                
-                                const openingQty = Number(getVal("openingqty") || 0);
-                                const openingRate = Number(getVal("openingrate") || 0);
-                                const openingValue = Number(getVal("openingvalue") || (openingQty * openingRate));
-                                
-                                const lotNumber = getVal("lotnumber") || null;
-                                const expiryDate = getVal("expirydate") || getVal("expiry") || null;
-                                
-                                // Find if item exists
-                                const { data: existingItem } = await supabase
-                                  .from("items")
-                                  .select("id, qty")
-                                  .eq("item_code", itemCode)
-                                  .maybeSingle();
-                                  
-                                let itemId = "";
-                                const itemPayload = {
-                                  item_code: itemCode,
-                                  item_name: itemName,
-                                  uom,
-                                  hsn_code: hsnCode,
-                                  vat_rate: vatRate,
-                                  selling_price: sellingPrice,
-                                  category,
-                                  parent_category: parentCategory,
-                                  sub_parent_category: subParentCategory,
-                                  sub_category: subCategory,
-                                  warehouse,
-                                  status,
-                                  alt_uom: altUom,
-                                  alt_uom_conversion: altUomConversion,
-                                  opening_qty: openingQty,
-                                  opening_rate: openingRate,
-                                  opening_value: openingValue,
-                                  qty: existingItem ? undefined : openingQty // Only override overall qty for new items
-                                };
-                                
-                                if (existingItem) {
-                                  itemId = existingItem.id;
-                                  // Update opening stock details
-                                  await supabase.from("items").update(itemPayload as never).eq("id", itemId);
-                                } else {
-                                  const { data: newItem, error: insertErr } = await supabase
-                                    .from("items")
-                                    .insert(itemPayload as never)
-                                    .select("id")
-                                    .single();
-                                  if (insertErr) throw insertErr;
-                                  itemId = newItem.id;
-                                }
-                                
-                                // Sync opening stock inward movement
-                                if (openingQty > 0) {
-                                  let { data: bill } = await supabase
-                                    .from("bills")
-                                    .select("id")
-                                    .eq("bill_number", "OPENING-STOCK")
-                                    .maybeSingle();
-                                    
-                                  if (!bill) {
-                                    const { data: newBill } = await supabase
-                                      .from("bills")
-                                      .insert({
-                                        bill_type: "items",
-                                        bill_number: "OPENING-STOCK",
-                                        invoice_date: new Date().toISOString().slice(0, 10),
-                                        status: "approved",
-                                        company_id: companyId,
-                                        final_amount: openingValue,
-                                        taxable_amount: openingValue,
-                                      } as never)
-                                      .select("id")
-                                      .single();
-                                    if (newBill) bill = newBill;
-                                  }
-                                  
-                                  if (bill) {
-                                    const { data: existingLine } = await supabase
-                                      .from("bill_lines")
-                                      .select("id")
-                                      .eq("bill_id", bill.id)
-                                      .eq("ref_id", itemId)
-                                      .maybeSingle();
-                                      
-                                    const linePayload = {
-                                      bill_id: bill.id,
-                                      ref_type: "item",
-                                      ref_id: itemId,
-                                      code: itemCode,
-                                      name: itemName,
-                                      uom,
-                                      quantity: openingQty,
-                                      per_unit: openingRate,
-                                      line_amount: openingValue,
-                                      lot_number: lotNumber,
-                                      expiry_date: expiryDate,
-                                    };
-                                    
-                                    if (existingLine) {
-                                      await supabase.from("bill_lines").update(linePayload as never).eq("id", existingLine.id);
-                                    } else {
-                                      await supabase.from("bill_lines").insert(linePayload as never);
-                                    }
-                                  }
-                                }
-                                
-                                successCount++;
-                              } catch (err) {
-                                console.error("Row import failed:", err);
-                                errorCount++;
-                              }
+                              const itemCode = getVal(row, "itemcode");
+                              const itemName = getVal(row, "itemname");
+                              if (!itemCode || !itemName) continue;
+                              const openingQty = Number(getVal(row, "openingqty") || 0);
+                              const openingRate = Number(getVal(row, "openingrate") || 0);
+                              const openingValue = Number(getVal(row, "openingvalue") || (openingQty * openingRate));
+                              const entry = { itemCode, itemName, openingQty, openingValue };
+                              if (existingCodes.has(itemCode)) existingItemsPrev.push(entry);
+                              else newItems.push(entry);
                             }
-                            
-                            // Re-calculate OPENING-STOCK bill total
-                            let { data: bill } = await supabase
-                              .from("bills")
-                              .select("id")
-                              .eq("bill_number", "OPENING-STOCK")
-                              .maybeSingle();
-                            if (bill) {
-                              const { data: lines } = await supabase
-                                .from("bill_lines")
-                                .select("line_amount")
-                                .eq("bill_id", bill.id);
-                              const totalVal = (lines || []).reduce((sum, l) => sum + Number(l.line_amount || 0), 0);
-                              await supabase.from("bills").update({ final_amount: totalVal, taxable_amount: totalVal } as never).eq("id", bill.id);
-                            }
-                            
-                            toast.success(`Import completed: ${successCount} successful, ${errorCount} failed`);
-                            setOpenImportDialog(false);
-                            qc.invalidateQueries({ queryKey: ["items"] });
-                            qc.invalidateQueries({ queryKey: ["unified_movements"] });
+                            setImportPreview({ newItems, existingItems: existingItemsPrev, parsedRows: dataRows, headers, companyId });
                           } catch (err) {
                             toast.error((err as Error).message);
                           } finally {
-                            setImporting(false);
+                            setPreviewing(false);
                           }
                         };
-                        if (isExcel) {
-                          reader.readAsArrayBuffer(file);
-                        } else {
-                          reader.readAsText(file);
-                        }
+                        if (isExcel) reader.readAsArrayBuffer(file);
+                        else reader.readAsText(file);
                       }}
                     />
+                    {previewing && <p className="text-xs text-muted-foreground animate-pulse">Analysing file…</p>}
+                    {importPreview && (
+                      <div className="rounded-lg border bg-muted/40 p-3 space-y-3 text-sm">
+                        <div className="flex gap-4">
+                          <div className="flex-1 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-2 text-center">
+                            <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{importPreview.newItems.length}</p>
+                            <p className="text-xs text-emerald-600 dark:text-emerald-400">New Items</p>
+                          </div>
+                          <div className="flex-1 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-2 text-center">
+                            <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{importPreview.existingItems.length}</p>
+                            <p className="text-xs text-amber-600 dark:text-amber-400">Existing (will update)</p>
+                          </div>
+                        </div>
+                        {importPreview.newItems.length + importPreview.existingItems.length > 0 && (
+                          <div className="max-h-36 overflow-y-auto rounded border text-xs">
+                            <table className="w-full">
+                              <thead className="sticky top-0 bg-muted">
+                                <tr>
+                                  <th className="text-left p-1 font-semibold">Code</th>
+                                  <th className="text-left p-1 font-semibold">Name</th>
+                                  <th className="text-right p-1 font-semibold">Qty</th>
+                                  <th className="text-right p-1 font-semibold">Value</th>
+                                  <th className="text-center p-1 font-semibold">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[...importPreview.newItems.map(i => ({...i, isNew: true})), ...importPreview.existingItems.map(i => ({...i, isNew: false}))].map((item, idx) => (
+                                  <tr key={idx} className={idx % 2 === 0 ? "bg-background" : "bg-muted/20"}>
+                                    <td className="p-1">{item.itemCode}</td>
+                                    <td className="p-1 max-w-[100px] truncate">{item.itemName}</td>
+                                    <td className="p-1 text-right">{item.openingQty}</td>
+                                    <td className="p-1 text-right">{item.openingValue.toLocaleString()}</td>
+                                    <td className="p-1 text-center">
+                                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                        item.isNew ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                                      }`}>{item.isNew ? "NEW" : "UPDATE"}</span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        <Button
+                          className="w-full"
+                          disabled={importing}
+                          onClick={async () => {
+                            setImporting(true);
+                            try {
+                              const { parsedRows, headers, companyId } = importPreview;
+                              const getVal = (row: any[], colName: string) => {
+                                const idx = headers.findIndex(h => h.includes(colName.replace(/\s+/g, "").toLowerCase()));
+                                return idx !== -1 ? String(row[idx] ?? "").trim() : "";
+                              };
+                              let successCount = 0, errorCount = 0;
+                              for (const row of parsedRows) {
+                                try {
+                                  const itemCode = getVal(row, "itemcode");
+                                  const itemName = getVal(row, "itemname");
+                                  if (!itemCode || !itemName) continue;
+                                  const uom = getVal(row, "unit") || "NOS";
+                                  const hsnCode = getVal(row, "hsncode") || null;
+                                  const vatRate = Number(getVal(row, "vatrate") || 5);
+                                  const sellingPrice = Number(getVal(row, "sellingprice") || 0);
+                                  const category = getVal(row, "category") || null;
+                                  const parentCategory = getVal(row, "parentcategory") || null;
+                                  const subParentCategory = getVal(row, "subparentcategory") || null;
+                                  const subCategory = getVal(row, "subcategory") || null;
+                                  const warehouse = getVal(row, "warehouse") || "Main Warehouse";
+                                  const status = getVal(row, "status") || "Active";
+                                  const altUom = getVal(row, "altuom") || null;
+                                  const altUomConversion = getVal(row, "altuomconversion") ? Number(getVal(row, "altuomconversion")) : null;
+                                  const openingQty = Number(getVal(row, "openingqty") || 0);
+                                  const openingRate = Number(getVal(row, "openingrate") || 0);
+                                  const openingValue = Number(getVal(row, "openingvalue") || (openingQty * openingRate));
+                                  const lotNumber = getVal(row, "lotnumber") || null;
+                                  const expiryDate = getVal(row, "expirydate") || getVal(row, "expiry") || null;
+
+                                  const { data: existingItem } = await supabase.from("items").select("id, qty").eq("item_code", itemCode).maybeSingle();
+                                  let itemId = "";
+                                  const itemPayload = {
+                                    item_code: itemCode, item_name: itemName, uom, hsn_code: hsnCode,
+                                    vat_rate: vatRate, selling_price: sellingPrice, category,
+                                    parent_category: parentCategory, sub_parent_category: subParentCategory,
+                                    sub_category: subCategory, warehouse, status, alt_uom: altUom,
+                                    alt_uom_conversion: altUomConversion, opening_qty: openingQty,
+                                    opening_rate: openingRate, opening_value: openingValue,
+                                    qty: existingItem ? undefined : openingQty
+                                  };
+                                  if (existingItem) {
+                                    itemId = existingItem.id;
+                                    await supabase.from("items").update(itemPayload as never).eq("id", itemId);
+                                  } else {
+                                    const { data: newItem, error: insertErr } = await supabase.from("items").insert(itemPayload as never).select("id").single();
+                                    if (insertErr) throw insertErr;
+                                    itemId = newItem.id;
+                                  }
+                                  if (openingQty > 0) {
+                                    let { data: bill } = await supabase.from("bills").select("id").eq("bill_number", "OPENING-STOCK").maybeSingle();
+                                    if (!bill) {
+                                      const { data: newBill } = await supabase.from("bills").insert({
+                                        bill_type: "items", bill_number: "OPENING-STOCK",
+                                        invoice_date: new Date().toISOString().slice(0, 10),
+                                        status: "approved", company_id: companyId,
+                                        final_amount: openingValue, taxable_amount: openingValue,
+                                      } as never).select("id").single();
+                                      if (newBill) bill = newBill;
+                                    }
+                                    if (bill) {
+                                      const { data: existingLine } = await supabase.from("bill_lines").select("id").eq("bill_id", bill.id).eq("ref_id", itemId).maybeSingle();
+                                      const linePayload = {
+                                        bill_id: bill.id, ref_type: "item", ref_id: itemId,
+                                        code: itemCode, name: itemName, uom,
+                                        quantity: openingQty, per_unit: openingRate, line_amount: openingValue,
+                                        lot_number: lotNumber, expiry_date: expiryDate,
+                                      };
+                                      if (existingLine) await supabase.from("bill_lines").update(linePayload as never).eq("id", existingLine.id);
+                                      else await supabase.from("bill_lines").insert(linePayload as never);
+                                    }
+                                  }
+                                  successCount++;
+                                } catch (err) { console.error("Row import failed:", err); errorCount++; }
+                              }
+                              // Recalculate OPENING-STOCK total
+                              const { data: bill } = await supabase.from("bills").select("id").eq("bill_number", "OPENING-STOCK").maybeSingle();
+                              if (bill) {
+                                const { data: lines } = await supabase.from("bill_lines").select("line_amount").eq("bill_id", bill.id);
+                                const totalVal = (lines || []).reduce((sum, l) => sum + Number(l.line_amount || 0), 0);
+                                await supabase.from("bills").update({ final_amount: totalVal, taxable_amount: totalVal } as never).eq("id", bill.id);
+                              }
+                              toast.success(`Import completed: ${successCount} saved, ${errorCount} failed`);
+                              setImportPreview(null);
+                              setOpenImportDialog(false);
+                              qc.invalidateQueries({ queryKey: ["items"] });
+                              qc.invalidateQueries({ queryKey: ["unified_movements"] });
+                            } catch (err) {
+                              toast.error((err as Error).message);
+                            } finally {
+                              setImporting(false);
+                            }
+                          }}
+                        >
+                          {importing ? "Importing…" : `Confirm & Import ${importPreview.newItems.length + importPreview.existingItems.length} Items`}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </DialogContent>
