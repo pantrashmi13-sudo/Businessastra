@@ -70,11 +70,28 @@ interface Line {
 
 function toISODate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
-  // DD/MM/YYYY → YYYY-MM-DD
-  const ddmmyyyy = dateStr.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-  if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, "0")}-${ddmmyyyy[1].padStart(2, "0")}`;
-  // Already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  
+  // Normalize delimiters (replace '/' or '.' with '-')
+  let normalized = dateStr.trim().replace(/[\/\.]/g, "-");
+
+  // Check for DD-MM-YYYY format
+  const ddmmyyyy = normalized.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (ddmmyyyy) {
+    normalized = `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, "0")}-${ddmmyyyy[1].padStart(2, "0")}`;
+  }
+
+  // Check if it is now in YYYY-MM-DD format
+  const yyyymmdd = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (yyyymmdd) {
+    const year = parseInt(yyyymmdd[1], 10);
+    // If year is between 2035 and 2095, it's a BS date (since current AD is 2026)
+    if (year >= 2035 && year <= 2095) {
+      const adDate = bsInputToAd(normalized);
+      if (adDate) return adDate;
+    }
+    return normalized;
+  }
+
   return dateStr;
 }
 
@@ -1156,10 +1173,16 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               <Field label={`Invoice Date (${companyDateFormat.toUpperCase()})`}>
                 {companyDateFormat === "bs" ? (
                   <Input
-                    type="date"
+                    type="text"
+                    placeholder="YYYY-MM-DD"
                     value={adToBsInput(invoiceDate)}
                     onChange={(e) => {
-                      const adDate = bsInputToAd(e.target.value);
+                      const val = e.target.value;
+                      if (!val) {
+                        setInvoiceDate("");
+                        return;
+                      }
+                      const adDate = bsInputToAd(val);
                       if (adDate) setInvoiceDate(adDate);
                     }}
                     disabled={isApproved}

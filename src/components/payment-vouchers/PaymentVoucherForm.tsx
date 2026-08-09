@@ -232,6 +232,10 @@ export function PaymentVoucherForm({
 
   // Handle date input change
   function handleDateChange(value: string) {
+    if (!value) {
+      setPaymentDate("");
+      return;
+    }
     if (dateFormat === "bs" || useBsDate) {
       // BS input -> convert to AD for storage
       const adDate = bsInputToAd(value);
@@ -537,7 +541,8 @@ export function PaymentVoucherForm({
                   </Button>
                 </div>
                 <Input
-                  type="date"
+                  type={useBsDate || dateFormat === "bs" ? "text" : "date"}
+                  placeholder={useBsDate || dateFormat === "bs" ? "YYYY-MM-DD" : undefined}
                   value={dateDisplayValue}
                   onChange={(e) => handleDateChange(e.target.value)}
                   disabled={viewOnly}
