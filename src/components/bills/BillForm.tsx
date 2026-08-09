@@ -8,6 +8,7 @@ import { Upload, Plus, Trash2, Loader2, CheckCircle2, Save } from "lucide-react"
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BsDatePicker } from "@/components/ui/bs-date-picker";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -1172,19 +1173,10 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               </Field>
               <Field label={`Invoice Date (${companyDateFormat.toUpperCase()})`}>
                 {companyDateFormat === "bs" ? (
-                  <Input
-                    type="text"
-                    placeholder="YYYY-MM-DD"
-                    value={adToBsInput(invoiceDate)}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (!val) {
-                        setInvoiceDate("");
-                        return;
-                      }
-                      const adDate = bsInputToAd(val);
-                      if (adDate) setInvoiceDate(adDate);
-                    }}
+                  <BsDatePicker
+                    value={invoiceDate}
+                    onChange={(adDate) => setInvoiceDate(adDate)}
+                    className="w-full"
                     disabled={isApproved}
                   />
                 ) : (

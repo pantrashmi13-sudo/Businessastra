@@ -21,6 +21,7 @@ interface BsDatePickerProps {
   onChange: (adDate: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 function getCurrentBS(): BSDate {
@@ -31,7 +32,7 @@ function getCurrentBS(): BSDate {
   return bs || { year: 2082, month: 1, day: 1 };
 }
 
-export function BsDatePicker({ value, onChange, placeholder = "Select date", className }: BsDatePickerProps) {
+export function BsDatePicker({ value, onChange, placeholder = "Select date", className, disabled }: BsDatePickerProps) {
   const [open, setOpen] = useState(false);
 
   // Convert AD value to BS for display
@@ -77,6 +78,7 @@ export function BsDatePicker({ value, onChange, placeholder = "Select date", cla
       <PopoverTrigger asChild>
         <button
           type="button"
+          disabled={disabled}
           className={cn(
             "flex h-9 w-44 items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono",
             className,

@@ -8,6 +8,7 @@ import { Loader2, Save, Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BsDatePicker } from "@/components/ui/bs-date-picker";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -540,13 +541,21 @@ export function PaymentVoucherForm({
                     {useBsDate ? "Switch to AD" : "Switch to BS"}
                   </Button>
                 </div>
-                <Input
-                  type={useBsDate || dateFormat === "bs" ? "text" : "date"}
-                  placeholder={useBsDate || dateFormat === "bs" ? "YYYY-MM-DD" : undefined}
-                  value={dateDisplayValue}
-                  onChange={(e) => handleDateChange(e.target.value)}
-                  disabled={viewOnly}
-                />
+                {useBsDate || dateFormat === "bs" ? (
+                  <BsDatePicker
+                    value={paymentDate}
+                    onChange={(adDate) => setPaymentDate(adDate)}
+                    className="w-full"
+                    disabled={viewOnly}
+                  />
+                ) : (
+                  <Input
+                    type="date"
+                    value={paymentDate}
+                    onChange={(e) => handleDateChange(e.target.value)}
+                    disabled={viewOnly}
+                  />
+                )}
               </div>
 
               <div className="space-y-2">
