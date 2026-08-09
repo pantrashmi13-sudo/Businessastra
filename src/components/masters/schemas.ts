@@ -105,6 +105,9 @@ export const itemSchema = z.object({
   alt_uom_conversion: z.coerce.number().min(0).optional(),
   is_service: z.boolean().optional(),
   description: opt,
+  opening_qty: z.coerce.number().min(0).default(0),
+  opening_rate: z.coerce.number().min(0).default(0),
+  opening_value: z.coerce.number().min(0).default(0),
 });
 export const itemFields: FieldDef[] = [
   { key: "item_code", label: "Item Code" },
@@ -131,6 +134,7 @@ export const itemFields: FieldDef[] = [
   { key: "alt_uom", label: "Alt UOM", placeholder: "BOX, CASE, DOZEN…" },
   { key: "alt_uom_conversion", label: "1 Main = X Alt", type: "number", placeholder: "e.g., 12" },
   { key: "is_service", label: "This is a service", type: "switch" },
+  { key: "opening_stock", label: "Opening Stock", type: "opening-stock" },
   { key: "description", label: "Description", type: "textarea", colSpan: 2 },
 ];
 

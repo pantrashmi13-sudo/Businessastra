@@ -31,7 +31,7 @@ import {
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "textarea" | "switch" | "email" | "select" | "category-group" | "pan-search";
+  type?: "text" | "number" | "textarea" | "switch" | "email" | "select" | "category-group" | "pan-search" | "opening-stock";
   colSpan?: 1 | 2;
   placeholder?: string;
   options?: string[];
@@ -71,10 +71,22 @@ export function MasterForm<S extends z.ZodTypeAny>({
   });
 
   const [catDialogOpen, setCatDialogOpen] = useState(false);
+  const [openingStockOpen, setOpeningStockOpen] = useState(false);
+
+  // Opening stock temp states
+  const [tempQty, setTempQty] = useState(0);
+  const [tempRate, setTempRate] = useState(0);
+  const [tempVal, setTempVal] = useState(0);
 
   const mutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
       const payload = { ...values };
+      
+      // If creating new item, set current qty to opening_qty
+      if (!initial?.id && table === "items") {
+        payload.qty = Number(payload.opening_qty || 0);
+      }
+
       if (initial?.id) {
         const { data, error } = await supabase
           .from(table as never)
@@ -86,15 +98,105 @@ export function MasterForm<S extends z.ZodTypeAny>({
         return data as Record<string, unknown>;
       }
       const { data, error } = await supabase
-        .from(table as never)
-        .insert(payload as never)
-        .select()
-        .single();
+          .from(table as never)
+          .insert(payload as never)
+          .select()
+          .single();
       if (error) throw error;
       return data as Record<string, unknown>;
     },
-    onSuccess: (row) => {
+    onSuccess: async (row) => {
+      if (table === "items") {
+        try {
+          // Sync opening stock movement in database
+          const qty = Number(row.opening_qty || 0);
+          const rate = Number(row.opening_rate || 0);
+          const val = Number(row.opening_value || 0);
+          const itemId = String(row.id);
+          const itemCode = String(row.item_code);
+          const itemName = String(row.item_name);
+          const uom = String(row.uom || "NOS");
+
+          // 1. Get default company
+          const { data: companies } = await supabase.from("companies").select("id").eq("is_default", true).limit(1);
+          const companyId = companies?.[0]?.id || (await supabase.from("companies").select("id").limit(1))?.data?.[0]?.id;
+
+          if (companyId) {
+            // 2. Find or create OPENING-STOCK bill
+            let { data: bill } = await supabase
+              .from("bills")
+              .select("id")
+              .eq("bill_number", "OPENING-STOCK")
+              .maybeSingle();
+
+            if (!bill) {
+              const { data: newBill, error: billErr } = await supabase
+                .from("bills")
+                .insert({
+                  bill_type: "items",
+                  bill_number: "OPENING-STOCK",
+                  invoice_date: new Date().toISOString().slice(0, 10),
+                  status: "approved",
+                  company_id: companyId,
+                  final_amount: val,
+                  taxable_amount: val,
+                } as never)
+                .select("id")
+                .single();
+              if (!billErr && newBill) {
+                bill = newBill;
+              }
+            }
+
+            if (bill) {
+              // 3. Upsert line in bill_lines
+              const { data: existingLine } = await supabase
+                .from("bill_lines")
+                .select("id")
+                .eq("bill_id", bill.id)
+                .eq("ref_id", itemId)
+                .maybeSingle();
+
+              if (qty === 0) {
+                if (existingLine) {
+                  await supabase.from("bill_lines").delete().eq("id", existingLine.id);
+                }
+              } else {
+                const linePayload = {
+                  bill_id: bill.id,
+                  ref_type: "item",
+                  ref_id: itemId,
+                  code: itemCode,
+                  name: itemName,
+                  uom: uom,
+                  quantity: qty,
+                  per_unit: rate,
+                  line_amount: val,
+                };
+
+                if (existingLine) {
+                  await supabase.from("bill_lines").update(linePayload as never).eq("id", existingLine.id);
+                } else {
+                  await supabase.from("bill_lines").insert(linePayload as never);
+                }
+              }
+
+              // 4. Update bill totals
+              const { data: lines } = await supabase
+                .from("bill_lines")
+                .select("line_amount")
+                .eq("bill_id", bill.id);
+              const totalVal = (lines || []).reduce((sum, l) => sum + Number(l.line_amount || 0), 0);
+              await supabase.from("bills").update({ final_amount: totalVal, taxable_amount: totalVal } as never).eq("id", bill.id);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to sync opening stock movement:", err);
+        }
+      }
+
       qc.invalidateQueries({ queryKey: [table] });
+      qc.invalidateQueries({ queryKey: ["unified_movements"] });
       toast.success(initial?.id ? "Updated" : "Created");
       onSaved?.(row);
     },
@@ -242,6 +344,103 @@ export function MasterForm<S extends z.ZodTypeAny>({
                     </div>
                   );
                 })()
+              ) : f.type === "opening-stock" ? (
+                <div className="space-y-1.5">
+                  <Dialog open={openingStockOpen} onOpenChange={(open) => {
+                    setOpeningStockOpen(open);
+                    if (open) {
+                      setTempQty(Number(form.getValues("opening_qty") || 0));
+                      setTempRate(Number(form.getValues("opening_rate") || 0));
+                      setTempVal(Number(form.getValues("opening_value") || 0));
+                    }
+                  }}>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full justify-between text-left font-normal"
+                      >
+                        <span>
+                          {Number(form.watch("opening_qty") || 0) > 0 ? (
+                            `Qty: ${form.watch("opening_qty")} | Rate: ${form.watch("opening_rate")} | Val: ${form.watch("opening_value")}`
+                          ) : (
+                            "Setup Opening Stock"
+                          )}
+                        </span>
+                        <span className="text-xs text-muted-foreground">Setup →</span>
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Setup Opening Stock</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 py-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Quantity</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            placeholder="0.00"
+                            value={tempQty || ""}
+                            onChange={(e) => {
+                              const q = Number(e.target.value || 0);
+                              setTempQty(q);
+                              setTempVal(Number((q * tempRate).toFixed(2)));
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Per Unit Rate (Main UOM)</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            placeholder="0.00"
+                            value={tempRate || ""}
+                            onChange={(e) => {
+                              const r = Number(e.target.value || 0);
+                              setTempRate(r);
+                              setTempVal(Number((tempQty * r).toFixed(2)));
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Total Stock Value</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            placeholder="0.00"
+                            value={tempVal || ""}
+                            onChange={(e) => {
+                              const v = Number(e.target.value || 0);
+                              setTempVal(v);
+                              if (tempQty > 0) {
+                                setTempRate(Number((v / tempQty).toFixed(2)));
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            form.setValue("opening_qty", tempQty as never);
+                            form.setValue("opening_rate", tempRate as never);
+                            form.setValue("opening_value", tempVal as never);
+                            setOpeningStockOpen(false);
+                          }}
+                        >
+                          Apply Stock
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                  
+                  {/* Hidden inputs to make sure react-hook-form validates/sends them */}
+                  <input type="hidden" {...form.register("opening_qty")} />
+                  <input type="hidden" {...form.register("opening_rate")} />
+                  <input type="hidden" {...form.register("opening_value")} />
+                </div>
               ) : f.type === "pan-search" ? (
                 <div className="flex gap-2">
                   <Input
