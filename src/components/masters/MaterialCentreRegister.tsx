@@ -524,67 +524,63 @@ export function MaterialCentreRegister() {
                 <div className="space-y-4 py-4">
                   <div className="flex flex-col gap-2">
                     <Label className="text-xs font-semibold">Step 1: Download Format Template</Label>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => {
-                        const headers = [
-                          "Item Code",
-                          "Item Name",
-                          "Unit",
-                          "HSN Code",
-                          "VAT Rate",
-                          "Selling Price",
-                          "Category",
-                          "Parent Category",
-                          "Sub Parent Category",
-                          "Sub Category",
-                          "Warehouse",
-                          "Status",
-                          "Alt UOM",
-                          "Alt UOM Conversion",
-                          "Opening Qty",
-                          "Opening Rate",
-                          "Opening Value",
-                          "Lot Number",
-                          "Expiry Date"
-                        ];
-                        const sampleRow = [
-                          "ITEM-001",
-                          "Example Item Name",
-                          "NOS",
-                          "8517",
-                          "13",
-                          "1500",
-                          "Electronics",
-                          "Phones",
-                          "Smartphones",
-                          "Android",
-                          "Main Warehouse",
-                          "Active",
-                          "BOX",
-                          "10",
-                          "50",
-                          "1000",
-                          "50000",
-                          "LOT-1029",
-                          "2027-12-31"
-                        ];
-                        const csvContent = [headers.join(","), sampleRow.join(",")].join("\n");
-                        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-                        const url = URL.createObjectURL(blob);
-                        const link = document.createElement("a");
-                        link.setAttribute("href", url);
-                        link.setAttribute("download", "opening_stock_import_template.csv");
-                        link.style.visibility = "hidden";
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                      }}
-                    >
-                      Download CSV Template
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => {
+                          const headers = [
+                            "Item Code", "Item Name", "Unit", "HSN Code", "VAT Rate",
+                            "Selling Price", "Category", "Parent Category", "Sub Parent Category",
+                            "Sub Category", "Warehouse", "Status", "Alt UOM", "Alt UOM Conversion",
+                            "Opening Qty", "Opening Rate", "Opening Value", "Lot Number", "Expiry Date"
+                          ];
+                          const sampleRow = [
+                            "ITEM-001", "Example Item Name", "NOS", "8517", "13", "1500",
+                            "Electronics", "Phones", "Smartphones", "Android", "Main Warehouse",
+                            "Active", "BOX", "10", "50", "1000", "50000", "LOT-1029", "2027-12-31"
+                          ];
+                          const csvContent = [headers.join(","), sampleRow.join(",")].join("\n");
+                          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                          const url = URL.createObjectURL(blob);
+                          const link = document.createElement("a");
+                          link.setAttribute("href", url);
+                          link.setAttribute("download", "opening_stock_import_template.csv");
+                          link.style.visibility = "hidden";
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }}
+                      >
+                        ↓ CSV Template
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1"
+                        onClick={async () => {
+                          const headers = [
+                            "Item Code", "Item Name", "Unit", "HSN Code", "VAT Rate",
+                            "Selling Price", "Category", "Parent Category", "Sub Parent Category",
+                            "Sub Category", "Warehouse", "Status", "Alt UOM", "Alt UOM Conversion",
+                            "Opening Qty", "Opening Rate", "Opening Value", "Lot Number", "Expiry Date"
+                          ];
+                          const sampleRow = [
+                            "ITEM-001", "Example Item Name", "NOS", "8517", "13", "1500",
+                            "Electronics", "Phones", "Smartphones", "Android", "Main Warehouse",
+                            "Active", "BOX", "10", "50", "1000", "50000", "LOT-1029", "2027-12-31"
+                          ];
+                          const XLSX = await import("xlsx");
+                          const ws = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+                          const wb = XLSX.utils.book_new();
+                          XLSX.utils.book_append_sheet(wb, ws, "Opening Stock");
+                          XLSX.writeFile(wb, "opening_stock_import_template.xlsx");
+                        }}
+                      >
+                        ↓ Excel Template
+                      </Button>
+                    </div>
                   </div>
                   
                   <div className="flex flex-col gap-2 pt-2 border-t">
