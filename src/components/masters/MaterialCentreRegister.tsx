@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Sheet,
@@ -515,9 +516,9 @@ export function MaterialCentreRegister() {
               <DialogContent className="max-w-md">
                 <DialogHeader>
                   <DialogTitle>Import Opening Stocks</DialogTitle>
-                  <SheetDescription>
+                  <DialogDescription>
                     Upload a CSV file containing opening stock and item details.
-                  </SheetDescription>
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="flex flex-col gap-2">
