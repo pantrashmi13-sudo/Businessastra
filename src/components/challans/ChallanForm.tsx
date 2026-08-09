@@ -39,8 +39,9 @@ import {
 import { EntityCombobox, type EntityOption } from "@/components/bills/EntityCombobox";
 import { customerSchema, customerFields } from "@/components/masters/schemas";
 import { inr, num, toNumber } from "@/lib/format";
-import { formatDate } from "@/lib/date-conversion";
+import { formatDate, adToBsInput, bsInputToAd } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
+import { BsDatePicker } from "@/components/ui/bs-date-picker";
 
 interface ChallanLine {
   id?: string;
@@ -541,11 +542,19 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
               <Label className="mb-1 block text-xs font-medium text-muted-foreground">
                 Dispatch Date
               </Label>
-              <Input
-                type="date"
-                value={challanDate}
-                onChange={(e) => setChallanDate(e.target.value)}
-              />
+              {dateFormat === "bs" ? (
+                <BsDatePicker
+                  value={challanDate}
+                  onChange={(adDate) => setChallanDate(adDate)}
+                  className="w-full"
+                />
+              ) : (
+                <Input
+                  type="date"
+                  value={challanDate}
+                  onChange={(e) => setChallanDate(e.target.value)}
+                />
+              )}
             </div>
 
             <div>
