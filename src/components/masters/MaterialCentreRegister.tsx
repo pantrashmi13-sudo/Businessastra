@@ -588,10 +588,10 @@ export function MaterialCentreRegister() {
                   </div>
                   
                   <div className="flex flex-col gap-2 pt-2 border-t">
-                    <Label className="text-xs font-semibold">Step 2: Upload Completed CSV</Label>
+                    <Label className="text-xs font-semibold">Step 2: Upload Completed CSV or Excel</Label>
                     <Input
                       type="file"
-                      accept=".csv"
+                      accept=".csv, .xlsx, .xls"
                       disabled={importing}
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
@@ -599,39 +599,50 @@ export function MaterialCentreRegister() {
                         
                         setImporting(true);
                         const reader = new FileReader();
+                        const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
+                        
                         reader.onload = async (evt) => {
                           try {
-                            const text = evt.target?.result as string;
-                            if (!text) throw new Error("File empty");
+                            let rows: any[][] = [];
                             
-                            // Parse CSV lines
-                            const rows: string[][] = [];
-                            const rawRows = text.split(/\r?\n/);
-                            for (const rawRow of rawRows) {
-                              if (!rawRow.trim()) continue;
-                              const values: string[] = [];
-                              let insideQuote = false;
-                              let currentValue = "";
-                              for (let i = 0; i < rawRow.length; i++) {
-                                const char = rawRow[i];
-                                if (char === '"') {
-                                  insideQuote = !insideQuote;
-                                } else if (char === ',' && !insideQuote) {
-                                  values.push(currentValue.trim());
-                                  currentValue = "";
-                                } else {
-                                  currentValue += char;
+                            if (isExcel) {
+                              const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+                              const XLSX = await import("xlsx");
+                              const workbook = XLSX.read(data, { type: "array" });
+                              const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                              rows = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+                            } else {
+                              const text = evt.target?.result as string;
+                              if (!text) throw new Error("File empty");
+                              
+                              // Parse CSV lines
+                              const rawRows = text.split(/\r?\n/);
+                              for (const rawRow of rawRows) {
+                                if (!rawRow.trim()) continue;
+                                const values: string[] = [];
+                                let insideQuote = false;
+                                let currentValue = "";
+                                for (let i = 0; i < rawRow.length; i++) {
+                                  const char = rawRow[i];
+                                  if (char === '"') {
+                                    insideQuote = !insideQuote;
+                                  } else if (char === ',' && !insideQuote) {
+                                    values.push(currentValue.trim());
+                                    currentValue = "";
+                                  } else {
+                                    currentValue += char;
+                                  }
                                 }
+                                values.push(currentValue.trim());
+                                rows.push(values);
                               }
-                              values.push(currentValue.trim());
-                              rows.push(values);
                             }
                             
                             if (rows.length < 2) {
-                              throw new Error("No data rows found in CSV");
+                              throw new Error("No data rows found in template");
                             }
                             
-                            const headers = rows[0].map(h => h.toLowerCase().replace(/\s+/g, ""));
+                            const headers = rows[0].map(h => String(h || "").toLowerCase().replace(/\s+/g, ""));
                             const dataRows = rows.slice(1);
                             
                             // Get default company
@@ -806,7 +817,11 @@ export function MaterialCentreRegister() {
                             setImporting(false);
                           }
                         };
-                        reader.readAsText(file);
+                        if (isExcel) {
+                          reader.readAsArrayBuffer(file);
+                        } else {
+                          reader.readAsText(file);
+                        }
                       }}
                     />
                   </div>
