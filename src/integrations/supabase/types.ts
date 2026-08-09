@@ -348,6 +348,9 @@ export type Database = {
           vat_rate: number
           warehouse: string | null
           status: string
+          opening_qty: number
+          opening_rate: number
+          opening_value: number
         }
         Insert: {
           alt_uom?: string | null
