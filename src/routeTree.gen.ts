@@ -15,6 +15,7 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LedgersRouteImport } from './routes/ledgers'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ReceiptPaymentIndexRouteImport } from './routes/receipt-payment.index'
 import { Route as ChallansIndexRouteImport } from './routes/challans.index'
 import { Route as BillsIndexRouteImport } from './routes/bills.index'
 import { Route as MastersVendorsRouteImport } from './routes/masters.vendors'
@@ -58,6 +59,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ReceiptPaymentIndexRoute = ReceiptPaymentIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ReceiptPaymentRoute,
 } as any)
 const ChallansIndexRoute = ChallansIndexRouteImport.update({
   id: '/challans/',
@@ -145,6 +151,7 @@ export interface FileRoutesByFullPath {
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills/': typeof BillsIndexRoute
   '/challans/': typeof ChallansIndexRoute
+  '/receipt-payment/': typeof ReceiptPaymentIndexRoute
   '/receipt-payment/payment-voucher/$id': typeof ReceiptPaymentPaymentVoucherIdRoute
   '/receipt-payment/payment-voucher/new': typeof ReceiptPaymentPaymentVoucherNewRoute
 }
@@ -153,7 +160,6 @@ export interface FileRoutesByTo {
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
-  '/receipt-payment': typeof ReceiptPaymentRouteWithChildren
   '/vat-register': typeof VatRegisterRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
@@ -166,6 +172,7 @@ export interface FileRoutesByTo {
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills': typeof BillsIndexRoute
   '/challans': typeof ChallansIndexRoute
+  '/receipt-payment': typeof ReceiptPaymentIndexRoute
   '/receipt-payment/payment-voucher/$id': typeof ReceiptPaymentPaymentVoucherIdRoute
   '/receipt-payment/payment-voucher/new': typeof ReceiptPaymentPaymentVoucherNewRoute
 }
@@ -188,6 +195,7 @@ export interface FileRoutesById {
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills/': typeof BillsIndexRoute
   '/challans/': typeof ChallansIndexRoute
+  '/receipt-payment/': typeof ReceiptPaymentIndexRoute
   '/receipt-payment/payment-voucher/$id': typeof ReceiptPaymentPaymentVoucherIdRoute
   '/receipt-payment/payment-voucher/new': typeof ReceiptPaymentPaymentVoucherNewRoute
 }
@@ -211,6 +219,7 @@ export interface FileRouteTypes {
     | '/masters/vendors'
     | '/bills/'
     | '/challans/'
+    | '/receipt-payment/'
     | '/receipt-payment/payment-voucher/$id'
     | '/receipt-payment/payment-voucher/new'
   fileRoutesByTo: FileRoutesByTo
@@ -219,7 +228,6 @@ export interface FileRouteTypes {
     | '/ledgers'
     | '/login'
     | '/onboarding'
-    | '/receipt-payment'
     | '/vat-register'
     | '/bills/$id'
     | '/bills/new'
@@ -232,6 +240,7 @@ export interface FileRouteTypes {
     | '/masters/vendors'
     | '/bills'
     | '/challans'
+    | '/receipt-payment'
     | '/receipt-payment/payment-voucher/$id'
     | '/receipt-payment/payment-voucher/new'
   id:
@@ -253,6 +262,7 @@ export interface FileRouteTypes {
     | '/masters/vendors'
     | '/bills/'
     | '/challans/'
+    | '/receipt-payment/'
     | '/receipt-payment/payment-voucher/$id'
     | '/receipt-payment/payment-voucher/new'
   fileRoutesById: FileRoutesById
@@ -320,6 +330,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/receipt-payment/': {
+      id: '/receipt-payment/'
+      path: '/'
+      fullPath: '/receipt-payment/'
+      preLoaderRoute: typeof ReceiptPaymentIndexRouteImport
+      parentRoute: typeof ReceiptPaymentRoute
     }
     '/challans/': {
       id: '/challans/'
@@ -416,11 +433,13 @@ declare module '@tanstack/react-router' {
 }
 
 interface ReceiptPaymentRouteChildren {
+  ReceiptPaymentIndexRoute: typeof ReceiptPaymentIndexRoute
   ReceiptPaymentPaymentVoucherIdRoute: typeof ReceiptPaymentPaymentVoucherIdRoute
   ReceiptPaymentPaymentVoucherNewRoute: typeof ReceiptPaymentPaymentVoucherNewRoute
 }
 
 const ReceiptPaymentRouteChildren: ReceiptPaymentRouteChildren = {
+  ReceiptPaymentIndexRoute: ReceiptPaymentIndexRoute,
   ReceiptPaymentPaymentVoucherIdRoute: ReceiptPaymentPaymentVoucherIdRoute,
   ReceiptPaymentPaymentVoucherNewRoute: ReceiptPaymentPaymentVoucherNewRoute,
 }
