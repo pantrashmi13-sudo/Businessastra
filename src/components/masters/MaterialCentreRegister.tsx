@@ -52,8 +52,6 @@ import {
   History,
   Tag,
   Search,
-  ArrowUpDown,
-  Calendar,
   ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -62,6 +60,7 @@ import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { MasterForm } from "./MasterForm";
 import { itemSchema, itemFields } from "./schemas";
+import { ItemFormDialog } from "./ItemFormDialog";
 
 interface ItemRecord {
   id: string;
@@ -81,6 +80,7 @@ interface ItemRecord {
   warehouse?: string | null;
   status?: string | null;
   is_service?: boolean | null;
+  is_inventory?: boolean | null;
   alt_uom?: string | null;
   alt_uom_conversion?: number | null;
   description?: string | null;
@@ -113,7 +113,7 @@ export function MaterialCentreRegister() {
   const dateFormat = useDateFormat();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterType, setFilterType] = useState<"all" | "goods" | "services">("all");
+  const [filterType, setFilterType] = useState<"inventory" | "other" | "services">("inventory");
   const [uomMode, setUomMode] = useState<"main" | "alt">("main");
   const [openNewDialog, setOpenNewDialog] = useState(false);
   const [editingItem, setEditingItem] = useState<ItemRecord | null>(null);
@@ -150,6 +150,7 @@ export function MaterialCentreRegister() {
       return (data ?? []) as ItemRecord[];
     },
   });
+
 
   // Fetch all movements (Inward from Bills + Outward from Delivery Challans)
   const movementsQuery = useQuery({
@@ -241,6 +242,7 @@ export function MaterialCentreRegister() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+
   // Group items by item_code (Primary Key)
   const groupedItems = useMemo(() => {
     const rawList = itemsQuery.data ?? [];
@@ -272,7 +274,8 @@ export function MaterialCentreRegister() {
   const filteredItems = useMemo(() => {
     return groupedItems.filter((item) => {
       // Type filter
-      if (filterType === "goods" && item.is_service) return false;
+      if (filterType === "inventory" && (item.is_service || item.is_inventory === false)) return false;
+      if (filterType === "other" && (item.is_service || item.is_inventory !== false)) return false;
       if (filterType === "services" && !item.is_service) return false;
 
       // Category hierarchy filters
@@ -348,6 +351,23 @@ export function MaterialCentreRegister() {
     }
 
     return { totalSkus, totalQty, totalValuation, lowStockCount };
+  }, [groupedItems]);
+
+  // Category counts for tabs
+  const categoryCounts = useMemo(() => {
+    let inventoryCount = 0;
+    let otherCount = 0;
+    let servicesCount = 0;
+    for (const item of groupedItems) {
+      if (item.is_service) {
+        servicesCount++;
+      } else if (item.is_inventory === false) {
+        otherCount++;
+      } else {
+        inventoryCount++;
+      }
+    }
+    return { inventoryCount, otherCount, servicesCount };
   }, [groupedItems]);
 
   // Currently inspected item detail
@@ -827,33 +847,23 @@ export function MaterialCentreRegister() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Dialog open={openNewDialog} onOpenChange={setOpenNewDialog}>
-              <DialogTrigger asChild>
-                <Button onClick={() => setEditingItem(null)}>
-                  <Plus className="mr-1 h-4 w-4" /> Add Item
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>{editingItem ? "Edit Item Master" : "New Inventory Item"}</DialogTitle>
-                </DialogHeader>
-                <MasterForm
-                  table="items"
-                  schema={itemSchema}
-                  fields={itemFields}
-                  initial={editingItem as unknown as Record<string, unknown>}
-                  onSaved={() => {
-                    setOpenNewDialog(false);
-                    setEditingItem(null);
-                    qc.invalidateQueries({ queryKey: ["items"] });
-                  }}
-                  onCancel={() => {
-                    setOpenNewDialog(false);
-                    setEditingItem(null);
-                  }}
-                />
-              </DialogContent>
-            </Dialog>
+            <Button onClick={() => { setEditingItem(null); setOpenNewDialog(true); }}>
+              <Plus className="mr-1 h-4 w-4" /> Add Item
+            </Button>
+            <ItemFormDialog
+              open={openNewDialog}
+              onOpenChange={(v) => {
+                setOpenNewDialog(v);
+                if (!v) setEditingItem(null);
+              }}
+              initial={editingItem as unknown as Record<string, unknown> | undefined}
+              onSaved={() => {
+                setOpenNewDialog(false);
+                setEditingItem(null);
+                qc.invalidateQueries({ queryKey: ["items"] });
+              }}
+            />
+
           </div>
         }
       />
@@ -862,23 +872,34 @@ export function MaterialCentreRegister() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Material SKUs</CardTitle>
-            <Boxes className="h-4 w-4 text-primary" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Inventory Items</CardTitle>
+            <Boxes className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalSkus}</div>
-            <p className="text-xs text-muted-foreground mt-1">Unique item codes registered</p>
+            <div className="text-2xl font-bold">{categoryCounts.inventoryCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">Physical goods tracked in stock</p>
           </CardContent>
         </Card>
 
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Stock Units</CardTitle>
-            <Package className="h-4 w-4 text-emerald-600" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Other Items</CardTitle>
+            <Package className="h-4 w-4 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{num(stats.totalQty)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Units available in warehouse</p>
+            <div className="text-2xl font-bold">{categoryCounts.otherCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">Non-inventory consumables</p>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Services</CardTitle>
+            <Boxes className="h-4 w-4 text-violet-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{categoryCounts.servicesCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">Service line items</p>
           </CardContent>
         </Card>
 
@@ -890,17 +911,6 @@ export function MaterialCentreRegister() {
           <CardContent>
             <div className="text-2xl font-bold">{inr(stats.totalValuation)}</div>
             <p className="text-xs text-muted-foreground mt-1">Based on purchase cost</p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Reorder Alerts</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{stats.lowStockCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">Items at or below reorder level</p>
           </CardContent>
         </Card>
       </div>
@@ -944,9 +954,9 @@ export function MaterialCentreRegister() {
 
             <Tabs value={filterType} onValueChange={(v) => setFilterType(v as any)} className="w-auto">
               <TabsList>
-                <TabsTrigger value="all">All ({groupedItems.length})</TabsTrigger>
-                <TabsTrigger value="goods">Inventory Goods</TabsTrigger>
-                <TabsTrigger value="services">Services</TabsTrigger>
+                <TabsTrigger value="inventory">Inventory ({categoryCounts.inventoryCount})</TabsTrigger>
+                <TabsTrigger value="other">Other Items ({categoryCounts.otherCount})</TabsTrigger>
+                <TabsTrigger value="services">Services ({categoryCounts.servicesCount})</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -1013,7 +1023,7 @@ export function MaterialCentreRegister() {
         </div>
       </div>
 
-      {/* Primary Material Register Table */}
+      {/* Primary Material Register Table (Items) */}
       <div className="rounded-md border bg-card shadow-sm overflow-hidden">
         <Table className="min-w-[900px]">
           <TableHeader className="bg-muted/50">
@@ -1066,6 +1076,13 @@ export function MaterialCentreRegister() {
                       <div className="font-medium text-foreground">{item.item_name}</div>
                       <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5">
                         {item.hsn_code ? <span>HSN: {item.hsn_code}</span> : null}
+                        {item.is_service ? (
+                          <span className="text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300 px-1.5 py-0.5 rounded font-medium">Service</span>
+                        ) : item.is_inventory === false ? (
+                          <span className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 px-1.5 py-0.5 rounded font-medium">Other Item</span>
+                        ) : (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium">Inventory</span>
+                        )}
                         {item.category ? (
                           <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
                             {item.category}
@@ -1217,7 +1234,7 @@ export function MaterialCentreRegister() {
                                 <TableCell className="font-medium text-xs font-mono">{m.docNumber}</TableCell>
                                 <TableCell className="text-xs font-medium">{m.partyName}</TableCell>
                                 <TableCell className="font-mono text-xs">{m.lot_number || "—"}</TableCell>
-                                <TableCell className="text-xs">{formatDate(m.expiry_date, dateFormat)}</TableCell>
+                                <TableCell className="text-xs">{formatDate(m.expiry_date || null, dateFormat)}</TableCell>
                                 <TableCell className="text-xs">
                                   {ageDays !== null ? (
                                     <Badge variant="secondary" className="text-[10px]">
@@ -1397,6 +1414,8 @@ export function MaterialCentreRegister() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+
     </div>
   );
 }

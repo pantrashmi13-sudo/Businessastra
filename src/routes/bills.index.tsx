@@ -41,6 +41,7 @@ const typeIcon: Record<string, React.ReactNode> = {
   items: <Package className="mr-1 h-3 w-3" />,
   services: <Wrench className="mr-1 h-3 w-3" />,
   fixed_assets: <Landmark className="mr-1 h-3 w-3" />,
+  other_items: <Package className="mr-1 h-3 w-3" />,
 };
 
 function BillsList() {
@@ -103,6 +104,11 @@ function BillsList() {
                   <Landmark className="mr-2 h-4 w-4" /> Fixed Assets
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/bills/new" search={{ type: "other_items" }}>
+                  <Package className="mr-2 h-4 w-4" /> Other Items
+                </Link>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         }
@@ -122,6 +128,7 @@ function BillsList() {
               <SelectItem value="items">Items</SelectItem>
               <SelectItem value="services">Services</SelectItem>
               <SelectItem value="fixed_assets">Fixed Assets</SelectItem>
+              <SelectItem value="other_items">Other Items</SelectItem>
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={setStatus}>

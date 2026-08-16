@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { MasterForm, type FieldDef } from "@/components/masters/MasterForm";
+import { ItemFormDialog } from "@/components/masters/ItemFormDialog";
 
 export interface EntityOption {
   id: string;
@@ -42,6 +43,8 @@ interface Props {
   // key of the display name field to pre-fill from typed query
   nameKey: string;
   disabled?: boolean;
+  // Default values passed to MasterForm when creating a new item
+  defaultValues?: Record<string, unknown>;
 }
 
 export function EntityCombobox({
@@ -55,6 +58,7 @@ export function EntityCombobox({
   fields,
   nameKey,
   disabled,
+  defaultValues,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -131,24 +135,36 @@ export function EntityCombobox({
         </PopoverContent>
       </Popover>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{addLabel}</DialogTitle>
-          </DialogHeader>
-          <MasterForm
-            table={table}
-            schema={schema}
-            fields={fields}
-            initial={query ? { [nameKey]: query } : null}
-            onSaved={(row) => {
-              setDialogOpen(false);
-              onChange(row.id as string, row);
-            }}
-            onCancel={() => setDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      {table === "items" ? (
+        <ItemFormDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          ocrPrefill={query ? { item_name: query, ...defaultValues } : (defaultValues ?? null)}
+          onSaved={(row) => {
+            setDialogOpen(false);
+            onChange(row.id as string, row);
+          }}
+        />
+      ) : (
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{addLabel}</DialogTitle>
+            </DialogHeader>
+            <MasterForm
+              table={table}
+              schema={schema}
+              fields={fields}
+              initial={query ? { [nameKey]: query, ...defaultValues } : defaultValues ?? null}
+              onSaved={(row) => {
+                setDialogOpen(false);
+                onChange(row.id as string, row);
+              }}
+              onCancel={() => setDialogOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }

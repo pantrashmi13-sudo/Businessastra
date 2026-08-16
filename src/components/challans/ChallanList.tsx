@@ -25,11 +25,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Search, Truck, Eye, Trash2, PackageCheck } from "lucide-react";
+import { Plus, Search, Truck, Eye, Trash2, PackageCheck, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import { inr, num } from "@/lib/format";
 import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
+import { InvoiceDialog } from "./InvoiceDialog";
 
 interface DeliveryChallanRecord {
   id: string;
@@ -55,6 +56,7 @@ export function ChallanList() {
   const qc = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
   const dateFormat = useDateFormat();
 
   const challansQuery = useQuery({
@@ -117,9 +119,14 @@ export function ChallanList() {
         title="Delivery Challans"
         description="Outward goods movement and customer dispatch register integrated with Customer Master & Stock Inventory."
         actions={
-          <Button onClick={() => navigate({ to: "/challans/new" })}>
-            <Plus className="mr-1 h-4 w-4" /> New Delivery Challan
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setInvoiceDialogOpen(true)}>
+              <Receipt className="mr-1 h-4 w-4" /> Create Invoice
+            </Button>
+            <Button onClick={() => navigate({ to: "/challans/new" })}>
+              <Plus className="mr-1 h-4 w-4" /> New Delivery Challan
+            </Button>
+          </div>
         }
       />
 
@@ -270,6 +277,9 @@ export function ChallanList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Invoice Dialog */}
+      <InvoiceDialog open={invoiceDialogOpen} onOpenChange={setInvoiceDialogOpen} />
     </div>
   );
 }

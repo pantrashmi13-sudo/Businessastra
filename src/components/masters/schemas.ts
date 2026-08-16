@@ -25,7 +25,7 @@ export const companyFields: FieldDef[] = [
   { key: "vat_number", label: "VAT Number", placeholder: "Enter VAT number if applicable" },
   { key: "pan", label: "PAN Number", placeholder: "Enter PAN number if applicable" },
   { key: "date_format", label: "Date Format", type: "select", options: ["ad", "bs"], placeholder: "AD = Gregorian, BS = Bikram Sambat" },
-  { key: "logo_url", label: "Logo URL", placeholder: "https://example.com/logo.png", colSpan: 2 },
+  { key: "logo_url", label: "Company Logo", type: "logo-upload", colSpan: 2 },
   { key: "email", label: "Email", type: "email" },
   { key: "phone", label: "Phone" },
   { key: "state", label: "State" },
@@ -104,16 +104,22 @@ export const itemSchema = z.object({
   alt_uom: opt,
   alt_uom_conversion: z.coerce.number().min(0).optional(),
   is_service: z.boolean().optional(),
+  is_inventory: z.boolean().optional().default(true),
   description: opt,
   opening_qty: z.coerce.number().min(0).default(0),
   opening_rate: z.coerce.number().min(0).default(0),
   opening_value: z.coerce.number().min(0).default(0),
+  sales_ledger: opt,
+  purchase_ledger: opt,
+  tds_applicable: z.boolean().optional().default(false),
+  tds_rate: z.coerce.number().min(0).max(100).optional().default(0),
 });
-export const itemFields: FieldDef[] = [
+
+export const itemBasicFields: FieldDef[] = [
   { key: "item_code", label: "Item Code" },
   { key: "item_name", label: "Item Name" },
   { key: "uom", label: "Unit", placeholder: "Kg, Piece, Box, Liter…" },
-  { key: "hsn_code", label: "HSN / SAC Code" },
+  { key: "hsn_code", label: "HSN Code" },
   { key: "vat_rate", label: "VAT %", type: "number" },
   { key: "selling_price", label: "Selling Price", type: "number" },
   { key: "category", label: "Category", type: "category-group" as const },
@@ -133,9 +139,88 @@ export const itemFields: FieldDef[] = [
   },
   { key: "alt_uom", label: "Alt UOM", placeholder: "BOX, CASE, DOZEN…" },
   { key: "alt_uom_conversion", label: "1 Main = X Alt", type: "number", placeholder: "e.g., 12" },
-  { key: "is_service", label: "This is a service", type: "switch" },
   { key: "opening_stock", label: "Opening Stock", type: "opening-stock" },
+];
+
+export const itemConfigFields: FieldDef[] = [
+  { key: "is_inventory", label: "Inventory Item", type: "switch" },
+  { key: "reorder_level", label: "Reorder Level", type: "number" },
+  { key: "default_rate", label: "Default Rate", type: "number" },
+];
+
+export const itemDescriptionFields: FieldDef[] = [
   { key: "description", label: "Description", type: "textarea", colSpan: 2 },
+];
+
+export const itemLedgerFields: FieldDef[] = [
+  { key: "sales_ledger", label: "Sales Ledger", placeholder: "e.g., Sales Account" },
+  { key: "purchase_ledger", label: "Purchase Ledger", placeholder: "e.g., Purchase Account" },
+];
+
+export const itemFields: FieldDef[] = [
+  ...itemBasicFields,
+  ...itemConfigFields,
+  ...itemDescriptionFields,
+  ...itemLedgerFields,
+];
+
+export const serviceSchema = z.object({
+  item_code: z.string().trim().min(1, "Code required").max(50),
+  item_name: z.string().trim().min(1, "Name required").max(200),
+  uom: z.string().trim().min(1).default("NOS"),
+  hsn_code: opt,
+  default_rate: z.coerce.number().min(0).default(0),
+  vat_rate: z.coerce.number().min(0).max(100).default(5),
+  qty: z.coerce.number().min(0).default(0),
+  selling_price: z.coerce.number().min(0).default(0),
+  reorder_level: z.coerce.number().min(0).default(0),
+  warehouse: opt,
+  status: opt,
+  category: opt,
+  parent_category: opt,
+  sub_parent_category: opt,
+  sub_category: opt,
+  alt_uom: opt,
+  alt_uom_conversion: z.coerce.number().min(0).optional(),
+  is_service: z.boolean().optional().default(true),
+  is_inventory: z.boolean().optional().default(false),
+  description: opt,
+  opening_qty: z.coerce.number().min(0).default(0),
+  opening_rate: z.coerce.number().min(0).default(0),
+  opening_value: z.coerce.number().min(0).default(0),
+  sales_ledger: opt,
+  purchase_ledger: opt,
+  tds_applicable: z.boolean().optional().default(false),
+  tds_rate: z.coerce.number().min(0).max(100).optional().default(0),
+});
+
+export const serviceBasicFields: FieldDef[] = [
+  { key: "item_code", label: "Service Code" },
+  { key: "item_name", label: "Service Name" },
+  { key: "uom", label: "Unit", placeholder: "NOS, HOUR, DAY…" },
+  { key: "hsn_code", label: "SAC Code" },
+  { key: "vat_rate", label: "VAT %", type: "number" },
+  { key: "selling_price", label: "Selling Price", type: "number" },
+  {
+    key: "status",
+    label: "Status",
+    type: "select",
+    options: ["Active", "Inactive"],
+  },
+];
+
+export const serviceDescriptionFields: FieldDef[] = [
+  { key: "description", label: "Description", type: "textarea", colSpan: 2 },
+];
+
+export const serviceLedgerFields: FieldDef[] = [
+  { key: "sales_ledger", label: "Sales Ledger", placeholder: "e.g., Service Income" },
+];
+
+export const serviceFields: FieldDef[] = [
+  ...serviceBasicFields,
+  ...serviceDescriptionFields,
+  ...serviceLedgerFields,
 ];
 
 export const fixedAssetSchema = z.object({

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { BillForm } from "@/components/bills/BillForm";
 
 const searchSchema = z.object({
-  type: z.enum(["items", "services", "fixed_assets"]).catch("items"),
+  type: z.enum(["items", "services", "fixed_assets", "other_items"]).catch("items"),
 });
 
 export const Route = createFileRoute("/bills/new")({

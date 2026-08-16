@@ -41,6 +41,7 @@ import {
 
 import { EntityCombobox, type EntityOption } from "./EntityCombobox";
 import { MasterForm } from "@/components/masters/MasterForm";
+import { ItemFormDialog } from "@/components/masters/ItemFormDialog";
 import {
   vendorSchema,
   vendorFields,
@@ -53,7 +54,7 @@ import { computeBillTotals, computeLineAmount } from "@/lib/vat";
 import { inr, num, toNumber } from "@/lib/format";
 import { extractBillFromFile } from "@/lib/bill-extract.functions";
 
-type BillType = "items" | "services" | "fixed_assets";
+type BillType = "items" | "services" | "fixed_assets" | "other_items";
 
 interface Line {
   id?: string;
@@ -110,6 +111,7 @@ const TYPE_LABEL: Record<BillType, string> = {
   items: "Items / Inventory",
   services: "Services",
   fixed_assets: "Fixed Assets",
+  other_items: "Other Items",
 };
 
 const emptyLine = (sno: number): Line => ({
@@ -199,6 +201,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     Number(existing?.transportation ?? 0),
   );
   const [otherCharges, setOtherCharges] = useState<number>(Number(existing?.other_charges ?? 0));
+  const [transportVatRate, setTransportVatRate] = useState<number>(0);
+  const [otherVatRate, setOtherVatRate] = useState<number>(0);
   const [manualVat, setManualVat] = useState<number | null>(
     existing?.vat_amount != null ? Number(existing.vat_amount) : null,
   );
@@ -247,6 +251,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const [linesToSyncMaster, setLinesToSyncMaster] = useState<Record<string, boolean>>({});
   const [editingMasterItemIndex, setEditingMasterItemIndex] = useState<number | null>(null);
   const [syncedItemMap, setSyncedItemMap] = useState<Record<number, boolean>>({});
+  const [masterFormOpen, setMasterFormOpen] = useState(false);
+  const [masterFormLineIndex, setMasterFormLineIndex] = useState<number | null>(null);
 
   // Auto-suggest internal bill number for new bills
   useEffect(() => {
@@ -317,9 +323,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const itemOptions: EntityOption[] = useMemo(() => {
     const source = billType === "services"
       ? (items.data ?? []).filter((i: Record<string, unknown>) => i.is_service)
-      : billType === "items"
-        ? (items.data ?? []).filter((i: Record<string, unknown>) => !i.is_service)
-        : (assets.data ?? []);
+      : billType === "fixed_assets"
+        ? (assets.data ?? [])
+        : (items.data ?? []).filter((i: Record<string, unknown>) => !i.is_service);
     return source.map((i: Record<string, unknown>) => ({
       id: i.id as string,
       label: (i.item_name || i.asset_name) as string,
@@ -372,23 +378,24 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         discount,
         transportation: billType === "services" ? 0 : transportation,
         other_charges: otherCharges,
+        transportation_vat_rate: billType === "services" ? 0 : transportVatRate,
+        other_charges_vat_rate: otherVatRate,
       }),
-    [lines, exempted, discount, transportation, otherCharges, billType],
+    [lines, exempted, discount, transportation, otherCharges, transportVatRate, otherVatRate, billType],
   );
 
   const totals = useMemo(() => {
     if (manualVat !== null) {
-      const discountAmt = Number(discount) || 0;
       const transportAmt = billType === "services" ? 0 : Number(transportation) || 0;
       const otherAmt = Number(otherCharges) || 0;
       return {
         taxable_amount: computedTotals.taxable_amount,
         vat_amount: manualVat,
-        final_amount: computedTotals.taxable_amount + manualVat + transportAmt + otherAmt - discountAmt,
+        final_amount: computedTotals.taxable_amount + manualVat + transportAmt + otherAmt,
       };
     }
     return computedTotals;
-  }, [computedTotals, manualVat, discount, transportation, otherCharges, billType]);
+  }, [computedTotals, manualVat, transportation, otherCharges, billType]);
 
   // Line handlers
   const updateLine = (i: number, patch: Partial<Line>) => {
@@ -789,7 +796,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         const table = isFixedAssets ? "fixed_assets" : "items";
         const codeField = isFixedAssets ? "asset_code" : "item_code";
         const nameField = isFixedAssets ? "asset_name" : "item_name";
-        const label = isFixedAssets ? "fixed assets" : isServices ? "services" : "inventory";
+        const label = isFixedAssets ? "fixed assets" : isServices ? "services" : billTypeRef.current === "other_items" ? "other items" : "inventory";
         const masterRoute = isFixedAssets ? "/masters/fixed-assets" : "/masters/items";
 
         const allowedIndices = vars.lineIndicesToSync
@@ -812,7 +819,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               const newQty = Number(item.qty || 0) + Number(line.quantity || 0);
               await supabase
                 .from(table)
-                .update({ qty: newQty } as never)
+                .update({ qty: newQty, ...(billTypeRef.current === "other_items" ? { is_inventory: false } : {}) } as never)
                 .eq("id", item.id);
               updated++;
             }
@@ -857,7 +864,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               const newQty = Number(existing.qty || 0) + Number(line.quantity || 1);
               await supabase
                 .from(table)
-                .update({ qty: newQty } as never)
+                .update({ qty: newQty, ...(billTypeRef.current === "other_items" ? { is_inventory: false } : {}) } as never)
                 .eq("id", existing.id);
               updated++;
             } else {
@@ -871,6 +878,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               };
               if (!isFixedAssets) {
                 payload.is_service = isServices;
+                if (billTypeRef.current === "other_items") {
+                  payload.is_inventory = false;
+                }
               }
               if (isFixedAssets) {
                 payload.purchase_date = invoiceDate || null;
@@ -1020,6 +1030,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                     <SelectItem value="items">Items / Inventory</SelectItem>
                     <SelectItem value="services">Services</SelectItem>
                     <SelectItem value="fixed_assets">Fixed Assets</SelectItem>
+                    <SelectItem value="other_items">Other Items</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1262,39 +1273,53 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                     <TableRow key={i}>
                       <TableCell className="w-[50px] text-muted-foreground align-middle">{l.sno}</TableCell>
                       <TableCell className="w-[260px] align-middle">
-                        <EntityCombobox
-                          value={l.ref_id}
-                          onChange={(id, row) => {
-                            if (row) {
-                              updateLine(i, {
-                                ref_id: id,
-                                code: (row.item_code || row.asset_code || "") as string,
-                                name: (row.item_name || row.asset_name || "") as string,
-                                uom: (row.uom as string) || "NOS",
-                                per_unit: Number(row.default_rate) || l.per_unit,
-                                vat_rate: Number(row.vat_rate) || l.vat_rate,
-                                lot_number: (row.lot_number as string) || l.lot_number,
-                                expiry_date: (row.expiry_date as string) || l.expiry_date,
-                              });
-                            } else {
-                              updateLine(i, { ref_id: null });
+                        <div className="space-y-1">
+                          <EntityCombobox
+                            value={l.ref_id}
+                            onChange={(id, row) => {
+                              if (row) {
+                                updateLine(i, {
+                                  ref_id: id,
+                                  code: (row.item_code || row.asset_code || "") as string,
+                                  name: (row.item_name || row.asset_name || "") as string,
+                                  uom: (row.uom as string) || "NOS",
+                                  per_unit: Number(row.default_rate) || l.per_unit,
+                                  vat_rate: Number(row.vat_rate) || l.vat_rate,
+                                  lot_number: (row.lot_number as string) || l.lot_number,
+                                  expiry_date: (row.expiry_date as string) || l.expiry_date,
+                                });
+                              } else {
+                                updateLine(i, { ref_id: null });
+                              }
+                            }}
+                            options={itemOptions}
+                            placeholder={l.name || "Select…"}
+                            addLabel={
+                              billType === "fixed_assets"
+                                ? "Add new fixed asset"
+                                : billType === "services"
+                                  ? "Add new service"
+                                  : "Add new item"
                             }
-                          }}
-                          options={itemOptions}
-                          placeholder={l.name || "Select…"}
-                          addLabel={
-                            billType === "fixed_assets"
-                              ? "Add new fixed asset"
-                              : billType === "services"
-                                ? "Add new service"
-                                : "Add new item"
-                          }
-                          table={billType === "fixed_assets" ? "fixed_assets" : "items"}
-                          schema={billType === "fixed_assets" ? fixedAssetSchema : itemSchema}
-                          fields={billType === "fixed_assets" ? fixedAssetFields : itemFields}
-                          nameKey={billType === "fixed_assets" ? "asset_name" : "item_name"}
-                          disabled={isApproved}
-                        />
+                            table={billType === "fixed_assets" ? "fixed_assets" : "items"}
+                            schema={billType === "fixed_assets" ? fixedAssetSchema : itemSchema}
+                            fields={billType === "fixed_assets" ? fixedAssetFields : itemFields}
+                            nameKey={billType === "fixed_assets" ? "asset_name" : "item_name"}
+                            disabled={isApproved}
+                          />
+                          {!l.ref_id && l.name && l.name.trim() !== "" && billType !== "fixed_assets" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMasterFormLineIndex(i);
+                                setMasterFormOpen(true);
+                              }}
+                              className="text-[10px] text-emerald-600 hover:text-emerald-700 font-semibold mt-1 hover:underline text-left block"
+                            >
+                              + Add "{l.name}" to Masters
+                            </button>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="w-[90px] align-middle">
                         <Input
@@ -1370,6 +1395,20 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                         {num(lineAmt)}
                       </TableCell>
                       <TableCell className="w-[40px] align-middle">
+                        {!l.ref_id && l.name.trim() && !isApproved && billType !== "fixed_assets" ? (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-primary"
+                            title="Add this line item to Masters"
+                            onClick={() => {
+                              setMasterFormLineIndex(i);
+                              setMasterFormOpen(true);
+                            }}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        ) : null}
                         <Button
                           size="icon"
                           variant="ghost"
@@ -1386,26 +1425,148 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             </Table>
           </CardContent>
 
+          {/* Pro-rata Allocation & Landing Cost Table */}
+          {lines.length > 0 && billType !== "services" && (() => {
+            const subtotal = lines.reduce((s, l) => s + (Number(l.quantity)||0) * (Number(l.per_unit)||0), 0);
+            const disc = Number(discount) || 0;
+            const trans = Number(transportation) || 0;
+            const other = Number(otherCharges) || 0;
+            return (
+              <div className="border-t">
+                <CardContent className="pt-6">
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Pro-rata Allocation &amp; Landing Cost</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/40 text-right">
+                          <th className="py-2 pl-2 text-left">Item</th>
+                          <th className="px-2 py-2">Line (ex-VAT)</th>
+                          <th className="px-2 py-2">−Discount</th>
+                          <th className="px-2 py-2">+Transport</th>
+                          <th className="px-2 py-2">+Other</th>
+                          <th className="px-2 py-2">Gross</th>
+                          <th className="px-2 py-2">VAT</th>
+                          <th className="px-2 py-2">Landing</th>
+                          <th className="pr-2 py-2">Unit Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lines.map((l, i) => {
+                          const lineAmt = (Number(l.quantity)||0) * (Number(l.per_unit)||0);
+                          const prop = subtotal > 0 ? lineAmt / subtotal : 0;
+                          const lineDisc = prop * disc;
+                          const lineTrans = prop * trans;
+                          const lineOther = prop * other;
+                          const gross = lineAmt - lineDisc + lineTrans + lineOther;
+                          const vatRate = Number(l.vat_rate) || 0;
+                          const vat = gross * vatRate / 100;
+                          const landing = gross;
+                          const qty = Number(l.quantity) || 1;
+                          const unitCost = landing / qty;
+                          const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                          return (
+                            <tr key={i} className="border-b text-right hover:bg-muted/20">
+                              <td className="py-1.5 pl-2 text-left font-medium">{l.name || `Item ${i+1}`}</td>
+                              <td className="px-2 py-1.5">{fmt(lineAmt)}</td>
+                              <td className="px-2 py-1.5 text-red-600">−{fmt(lineDisc)}</td>
+                              <td className="px-2 py-1.5 text-emerald-600">+{fmt(lineTrans)}</td>
+                              <td className="px-2 py-1.5 text-blue-600">+{fmt(lineOther)}</td>
+                              <td className="px-2 py-1.5 font-semibold">{fmt(gross)}</td>
+                              <td className="px-2 py-1.5 text-amber-600">{vatRate}%  +{fmt(vat)}</td>
+                              <td className="px-2 py-1.5 font-semibold">{fmt(landing)}</td>
+                              <td className="pr-2 py-1.5 font-bold text-primary">{fmt(unitCost)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </div>
+            );
+          })()}
+
           {/* Totals Section */}
           <div className="border-t">
             <CardContent className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-2">
               <div className="space-y-3">
-                <TotalRow label="Taxable Amount" value={inr(totals.taxable_amount)} />
+                <TotalRow label="Taxable Amount (ex-VAT)" value={inr(totals.taxable_amount)} />
                 <NumField label="Exempted Amount" value={exempted} onChange={setExempted} disabled={isApproved} />
                 <NumField label="Discount" value={discount} onChange={setDiscount} disabled={isApproved} />
                 {!isServiceMode ? (
-                  <NumField
-                    label="Transportation"
-                    value={transportation}
-                    onChange={setTransportation}
-                    disabled={isApproved}
-                  />
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-sm">Transportation (ex-VAT)</Label>
+                      <div className="flex items-center gap-1">
+                        <Select
+                          value={String(transportVatRate)}
+                          onValueChange={(v) => setTransportVatRate(Number(v))}
+                          disabled={isApproved}
+                        >
+                          <SelectTrigger className="h-8 w-20 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">0%</SelectItem>
+                            <SelectItem value="5">5%</SelectItem>
+                            <SelectItem value="13">13%</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          type="number"
+                          step="any"
+                          className="w-28 text-right text-sm"
+                          value={transportation}
+                          onChange={(e) => setTransportation(Number(e.target.value) || 0)}
+                          disabled={isApproved}
+                        />
+                      </div>
+                    </div>
+                    {transportVatRate > 0 && (
+                      <div className="flex justify-end text-xs text-muted-foreground pr-1">
+                        Transport VAT ({transportVatRate}%): {inr((Number(transportation)||0) * transportVatRate / 100)}
+                      </div>
+                    )}
+                  </div>
                 ) : null}
-                <NumField label="Other Charges" value={otherCharges} onChange={setOtherCharges} disabled={isApproved} />
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-sm">Other Charges (ex-VAT)</Label>
+                    <div className="flex items-center gap-1">
+                      <Select
+                        value={String(otherVatRate)}
+                        onValueChange={(v) => setOtherVatRate(Number(v))}
+                        disabled={isApproved}
+                      >
+                        <SelectTrigger className="h-8 w-20 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">0%</SelectItem>
+                          <SelectItem value="5">5%</SelectItem>
+                          <SelectItem value="13">13%</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        step="any"
+                        className="w-28 text-right text-sm"
+                        value={otherCharges}
+                        onChange={(e) => setOtherCharges(Number(e.target.value) || 0)}
+                        disabled={isApproved}
+                      />
+                    </div>
+                  </div>
+                  {otherVatRate > 0 && (
+                    <div className="flex justify-end text-xs text-muted-foreground pr-1">
+                      Other Charges VAT ({otherVatRate}%): {inr((Number(otherCharges)||0) * otherVatRate / 100)}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <Label className="text-sm">{taxType === "pan" ? "Tax" : "VAT"}</Label>
+                  <Label className="text-sm">{taxType === "pan" ? "Tax" : "VAT"} (auto)</Label>
                   <div className="flex items-center gap-1">
                     <Input
                       type="number"
@@ -1469,14 +1630,12 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Inline Master Form (opens directly above the list when "Edit in Master" is clicked) */}
-            {editingMasterItemIndex !== null && (() => {
+            {/* Inline Master Form (only for fixed assets, other items use ItemFormDialog modal) */}
+            {editingMasterItemIndex !== null && billType === "fixed_assets" && (() => {
               const line = lines[editingMasterItemIndex];
               if (!line) return null;
 
-              const isFixedAssets = billType === "fixed_assets";
-              const isServices = billType === "services";
-              const table = isFixedAssets ? "fixed_assets" : "items";
+              const table = "fixed_assets";
               const autoCode = (line.code || line.name)
                 .trim()
                 .toUpperCase()
@@ -1484,32 +1643,22 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 .replace(/\s+/g, "-")
                 .slice(0, 50);
 
-              const initialMasterValues: Record<string, unknown> = isFixedAssets
-                ? {
-                    asset_code: autoCode,
-                    asset_name: line.name.trim(),
-                    uom: line.uom || "NOS",
-                    category: "Other",
-                    purchase_date: invoiceDate || new Date().toISOString().slice(0, 10),
-                    purchase_cost: line.per_unit,
-                    total_cost: computeLineAmount(line.quantity, line.per_unit),
-                    qty: Number(line.quantity) || 1,
-                  }
-                : {
-                    item_code: autoCode,
-                    item_name: line.name.trim(),
-                    uom: line.uom || "NOS",
-                    default_rate: line.per_unit,
-                    vat_rate: line.vat_rate,
-                    qty: Number(line.quantity) || 1,
-                    is_service: isServices,
-                  };
+              const initialMasterValues = {
+                asset_code: autoCode,
+                asset_name: line.name.trim(),
+                uom: line.uom || "NOS",
+                category: "Other",
+                purchase_date: invoiceDate || new Date().toISOString().slice(0, 10),
+                purchase_cost: line.per_unit,
+                total_cost: computeLineAmount(line.quantity, line.per_unit),
+                qty: Number(line.quantity) || 1,
+              };
 
               return (
                 <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/40 p-3 space-y-2">
                   <div className="flex items-center justify-between border-b border-blue-200 dark:border-blue-800 pb-1.5">
                     <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
-                      Edit Item Details: {line.name}
+                      Edit Asset Details: {line.name}
                     </span>
                     <Button
                       type="button"
@@ -1523,12 +1672,11 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                   </div>
                   <MasterForm
                     table={table}
-                    schema={isFixedAssets ? fixedAssetSchema : itemSchema}
-                    fields={isFixedAssets ? fixedAssetFields : itemFields}
+                    schema={fixedAssetSchema}
+                    fields={fixedAssetFields}
                     initial={initialMasterValues}
                     onSaved={(createdRow) => {
-                      toast.success(`Item "${line.name}" saved to Master!`);
-                      // Update line ref_id if created
+                      toast.success(`Asset "${line.name}" saved to Master!`);
                       if (createdRow?.id) {
                         setLines((prev) =>
                           prev.map((l, i) =>
@@ -1541,7 +1689,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                       qc.invalidateQueries({ queryKey: [table] });
                     }}
                     onCancel={() => setEditingMasterItemIndex(null)}
-                    submitLabel="Save Item to Master"
+                    submitLabel="Save Asset to Master"
                   />
                 </div>
               );
@@ -1621,7 +1769,14 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                               variant="secondary"
                               size="sm"
                               className="h-7 text-[11px] px-2 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800"
-                              onClick={() => setEditingMasterItemIndex(idx)}
+                              onClick={() => {
+                                if (billType === "fixed_assets") {
+                                  setEditingMasterItemIndex(idx);
+                                } else {
+                                  setMasterFormLineIndex(idx);
+                                  setMasterFormOpen(true);
+                                }
+                              }}
                             >
                               Edit in Master
                             </Button>
@@ -1668,6 +1823,39 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {masterFormLineIndex !== null && (
+        <ItemFormDialog
+          open={masterFormOpen}
+          onOpenChange={setMasterFormOpen}
+          ocrPrefill={
+            masterFormLineIndex !== null
+              ? {
+                  item_code: lines[masterFormLineIndex]?.code || "",
+                  item_name: lines[masterFormLineIndex]?.name || "",
+                  uom: lines[masterFormLineIndex]?.uom || "NOS",
+                  hsn_code: "",
+                  vat_rate: lines[masterFormLineIndex]?.vat_rate || 5,
+                  per_unit: lines[masterFormLineIndex]?.per_unit || 0,
+                }
+              : undefined
+          }
+          onSaved={(item) => {
+            if (masterFormLineIndex !== null) {
+              updateLine(masterFormLineIndex, {
+                ref_id: item.id as string,
+                code: (item.item_code as string) || lines[masterFormLineIndex].code,
+                name: (item.item_name as string) || lines[masterFormLineIndex].name,
+                uom: (item.uom as string) || lines[masterFormLineIndex].uom,
+                vat_rate: Number(item.vat_rate) || lines[masterFormLineIndex].vat_rate,
+              });
+              toast.success(`"${item.item_name}" added to masters and linked to this line.`);
+            }
+            setMasterFormOpen(false);
+            setMasterFormLineIndex(null);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -45,6 +45,7 @@ interface Props {
   searchKeys: string[];
   disableNew?: boolean;
   disableDelete?: boolean;
+  rowActions?: (row: Record<string, unknown>) => React.ReactNode;
 }
 
 export function MasterCrudPage({
@@ -57,6 +58,7 @@ export function MasterCrudPage({
   searchKeys,
   disableNew = false,
   disableDelete = false,
+  rowActions,
 }: Props) {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
@@ -177,25 +179,28 @@ export function MasterCrudPage({
                       </TableCell>
                     ))}
                     <TableCell className="text-right">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => {
-                          setEditing(r);
-                          setOpen(true);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      {!disableDelete && (
+                      <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
+                        {rowActions?.(r)}
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() => setConfirmDelete(r.id as string)}
+                          onClick={() => {
+                            setEditing(r);
+                            setOpen(true);
+                          }}
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                          <Pencil className="h-4 w-4" />
                         </Button>
-                      )}
+                        {!disableDelete && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => setConfirmDelete(r.id as string)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

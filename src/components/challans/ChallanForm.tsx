@@ -10,6 +10,9 @@ import {
   CheckCircle2,
   Truck,
   Package,
+  Printer,
+  Edit,
+  ArrowLeft,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -17,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { numberToWords } from "@/lib/number-words";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -42,6 +46,7 @@ import { inr, num, toNumber } from "@/lib/format";
 import { formatDate, adToBsInput, bsInputToAd } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { BsDatePicker } from "@/components/ui/bs-date-picker";
+import { useCompany } from "@/hooks/use-company";
 
 interface ChallanLine {
   id?: string;
@@ -60,6 +65,11 @@ interface ChallanLine {
   lot_number: string;
   expiry_date: string;
   created_at?: string;
+  category?: string;
+  parent_category?: string;
+  sub_parent_category?: string;
+  sub_category?: string;
+  warehouse?: string;
 }
 
 interface ChallanFormProps {
@@ -86,9 +96,15 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const dateFormat = useDateFormat();
+  const { company } = useCompany();
 
   const existing = initial?.challan;
   const isNew = !challanId;
+  const [isEditMode, setIsEditMode] = useState(isNew);
+
+  // Category + Warehouse filter for item selection
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterWarehouse, setFilterWarehouse] = useState<string>("all");
 
   // Form states
   const [customerId, setCustomerId] = useState<string | null>(
@@ -154,11 +170,15 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     },
   });
 
-  // Load Items Master query (Goods only for physical dispatch)
+  // Load Items Master query (Inventory items only for physical dispatch)
   const items = useQuery({
     queryKey: ["items", "list"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("items").select("*").order("item_code");
+      const { data, error } = await supabase
+        .from("items")
+        .select("*")
+        .eq("is_inventory", true)
+        .order("item_code");
       if (error) throw error;
       return data ?? [];
     },
@@ -300,16 +320,51 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     [customers.data],
   );
 
-  // Item options for combobox — displaying real-time available stock
+  // All unique warehouses from inventory items
+  const allWarehouses = useMemo(() => {
+    const whs = new Set<string>();
+    (items.data ?? []).forEach((i: Record<string, unknown>) => {
+      if (i.warehouse) whs.add(i.warehouse as string);
+    });
+    return Array.from(whs).sort();
+  }, [items.data]);
+
+  // All unique categories from inventory items (scoped to selected warehouse)
+  const allCategories = useMemo(() => {
+    const cats = new Set<string>();
+    (items.data ?? []).forEach((i: Record<string, unknown>) => {
+      if (filterWarehouse !== "all" && (i.warehouse as string) !== filterWarehouse) return;
+      if (i.category) cats.add(i.category as string);
+    });
+    return Array.from(cats).sort();
+  }, [items.data, filterWarehouse]);
+
+  // Item options for combobox — filtered by warehouse + category, displaying real-time available stock
   const itemOptions: EntityOption[] = useMemo(
     () =>
-      (items.data ?? []).map((i: Record<string, unknown>) => ({
-        id: i.id as string,
-        label: `${i.item_name} (Stock: ${num(Number(i.qty || 0))} ${i.uom || "NOS"})`,
-        sublabel: `${i.item_code} · Available: ${num(Number(i.qty || 0))} ${i.uom || "NOS"}`,
-        raw: i,
-      })),
-    [items.data],
+      (items.data ?? [])
+        .filter((i: Record<string, unknown>) => {
+          const whMatch = filterWarehouse === "all" || (i.warehouse as string) === filterWarehouse;
+          const catMatch = filterCategory === "all" || (i.category as string) === filterCategory;
+          return whMatch && catMatch;
+        })
+        .map((i: Record<string, unknown>) => {
+          const catParts = [
+            i.category,
+            i.parent_category,
+            i.sub_parent_category,
+            i.sub_category,
+          ].filter(Boolean).join(" › ");
+          const wh = i.warehouse ? `📦 ${i.warehouse}` : "";
+          return {
+            id: i.id as string,
+            label: `${i.item_name} (Stock: ${num(Number(i.qty || 0))} ${i.uom || "NOS"})`,
+            sublabel: [wh, i.item_code as string, catParts, `Available: ${num(Number(i.qty || 0))} ${i.uom || "NOS"}`]
+              .filter(Boolean).join(" · "),
+            raw: i,
+          };
+        }),
+    [items.data, filterWarehouse, filterCategory],
   );
 
   // Update customer row & auto-fill delivery address when selected
@@ -467,6 +522,276 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
         .join(" · ")
     : "";
 
+  const companyAddress = [company.address, company.city, company.state, company.pincode]
+    .filter(Boolean)
+    .join(", ");
+
+  const customerAddress = customerRow
+    ? [(customerRow.billing_address as string), (customerRow.city as string), (customerRow.state as string)]
+        .filter(Boolean)
+        .join(", ")
+    : "";
+
+  const activeLines = lines.filter((l) => l.name?.trim());
+  const amountInWords = numberToWords(totalAmount);
+
+  if (!isEditMode) {
+    return (
+      <div className="space-y-6 p-6">
+        {/* Actions bar - hidden on print */}
+        <div className="flex items-center justify-between no-print mb-4 bg-muted/30 p-4 rounded-lg border">
+          <div className="flex items-start gap-3">
+            <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/challans" })}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to List
+            </Button>
+            <div>
+              <h1 className="text-lg font-bold">Delivery Challan Details</h1>
+              <p className="text-xs text-muted-foreground font-mono">{challanNumber}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="default" className="bg-emerald-600 text-white font-medium capitalize">
+              Dispatched
+            </Badge>
+            <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />
+              Print Challan
+            </Button>
+            <Button size="sm" onClick={() => setIsEditMode(true)}>
+              <Edit className="mr-2 h-4 w-4" />
+              Edit Challan
+            </Button>
+          </div>
+        </div>
+
+        {/* Paper printable container */}
+        <div className="bg-white border rounded-lg p-6 sm:p-8 max-w-[800px] mx-auto challan-printable shadow-sm">
+          {/* Company Details Header */}
+          <div className="flex items-start justify-between mb-6 border-b pb-4">
+            <div className="flex items-start gap-3">
+              {company.logo_url ? (
+                <img
+                  src={company.logo_url}
+                  alt={company.name}
+                  className="h-14 w-14 object-contain rounded border"
+                />
+              ) : (
+                <div className="h-14 w-14 rounded bg-primary/10 flex items-center justify-center text-lg font-bold text-primary border">
+                  {(company.name || "CO").slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div>
+                <h1 className="text-lg font-bold text-foreground">{company.name}</h1>
+                {companyAddress && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{companyAddress}</p>
+                )}
+                <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                  {company.pan && <span>PAN: {company.pan}</span>}
+                  {company.vat_number && <span>VAT: {company.vat_number}</span>}
+                </div>
+                {company.phone && (
+                  <p className="text-xs text-muted-foreground">Phone: {company.phone}</p>
+                )}
+                {company.email && (
+                  <p className="text-xs text-muted-foreground">Email: {company.email}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="text-right">
+              <h2 className="text-xl font-bold text-primary uppercase tracking-wide">
+                Delivery Challan
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">Outward Goods Movement</p>
+            </div>
+          </div>
+
+          {/* Party and Challan Metadata */}
+          <div className="grid grid-cols-2 gap-6 mb-6">
+            {/* Customer Details */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                Deliver To / Consignee
+              </p>
+              <p className="font-semibold text-sm">{customerRow ? (customerRow.name as string) : "—"}</p>
+              {customerRow?.vat_number && (
+                <p className="text-xs text-muted-foreground">VAT/PAN: {customerRow.vat_number as string}</p>
+              )}
+              {customerAddress && (
+                <p className="text-xs text-muted-foreground mt-0.5">{customerAddress}</p>
+              )}
+              {customerRow?.phone && (
+                <p className="text-xs text-muted-foreground">Phone: {customerRow.phone as string}</p>
+              )}
+              {customerRow?.email && (
+                <p className="text-xs text-muted-foreground">Email: {customerRow.email as string}</p>
+              )}
+            </div>
+
+            {/* Challan Logistics Details */}
+            <div className="text-right text-sm space-y-1">
+              <div>
+                <span className="text-xs text-muted-foreground">Challan #: </span>
+                <span className="font-mono font-semibold">{challanNumber}</span>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Date: </span>
+                <span>{formatDate(challanDate, dateFormat)}</span>
+              </div>
+              {poReference && (
+                <div>
+                  <span className="text-xs text-muted-foreground">PO Ref: </span>
+                  <span className="font-mono">{poReference}</span>
+                </div>
+              )}
+              {vehicleNumber && (
+                <div>
+                  <span className="text-xs text-muted-foreground">Vehicle No: </span>
+                  <span>{vehicleNumber}</span>
+                </div>
+              )}
+              {driverContact && (
+                <div>
+                  <span className="text-xs text-muted-foreground">Driver Contact: </span>
+                  <span>{driverContact}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Shipping / Delivery Site Address (if different from Customer Address) */}
+          {deliveryAddress && deliveryAddress !== customerAddress && (
+            <div className="mb-6 bg-muted/20 p-2.5 rounded border text-xs">
+              <p className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                Consignee Delivery Address
+              </p>
+              <p className="text-foreground">{deliveryAddress}</p>
+            </div>
+          )}
+
+          {/* Line Items Table */}
+          <div className="mb-6 overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-muted/50 border-y text-left">
+                  <th className="py-2 px-2 w-[40px] text-xs font-semibold">#</th>
+                  <th className="py-2 px-2 text-xs font-semibold">Material / Description</th>
+                  <th className="py-2 px-2 w-[80px] text-xs font-semibold">Code</th>
+                  <th className="py-2 px-2 w-[100px] text-xs font-semibold">Lot Number</th>
+                  <th className="py-2 px-2 w-[90px] text-xs font-semibold">Expiry</th>
+                  <th className="py-2 px-2 w-[55px] text-xs font-semibold text-right">UOM</th>
+                  <th className="py-2 px-2 w-[70px] text-xs font-semibold text-right">Qty</th>
+                  <th className="py-2 px-2 w-[80px] text-xs font-semibold text-right">Rate</th>
+                  <th className="py-2 px-2 w-[100px] text-xs font-semibold text-right">Line Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeLines.map((line, i) => {
+                  const lineAmt = Number(line.quantity || 0) * Number(line.per_unit || 0);
+                  return (
+                    <tr key={i} className="border-b last:border-b-0">
+                      <td className="py-2.5 px-2 text-muted-foreground text-xs">{line.sno}</td>
+                      <td className="py-2.5 px-2">
+                        <div className="font-medium text-xs sm:text-sm">{line.name}</div>
+                        {line.warehouse && (
+                          <div className="text-[10px] text-blue-600 font-mono">Wh: {line.warehouse}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-2 text-xs font-mono">{line.code || "—"}</td>
+                      <td className="py-2.5 px-2 text-xs font-mono">{line.lot_number || "—"}</td>
+                      <td className="py-2.5 px-2 text-xs font-mono">
+                        {line.expiry_date ? formatDate(line.expiry_date, dateFormat) : "—"}
+                      </td>
+                      <td className="py-2.5 px-2 text-right text-xs font-mono">{line.uom}</td>
+                      <td className="py-2.5 px-2 text-right font-mono font-medium">{num(line.quantity)}</td>
+                      <td className="py-2.5 px-2 text-right font-mono">{inr(line.per_unit)}</td>
+                      <td className="py-2.5 px-2 text-right font-semibold font-mono">{inr(lineAmt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Valuation Summary & Transporter Notes */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            {/* Notes */}
+            <div className="p-3 bg-muted/20 rounded border text-xs">
+              <p className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                Dispatch / Transporter Notes
+              </p>
+              <p className="whitespace-pre-line text-muted-foreground">{notes || "No additional shipping instructions."}</p>
+            </div>
+
+            {/* Totals */}
+            <div className="flex flex-col justify-end space-y-1.5 text-sm ml-auto w-full max-w-[280px]">
+              <div className="flex justify-between py-1 border-b">
+                <span className="text-muted-foreground">Total Dispatched Qty:</span>
+                <span className="font-mono font-semibold">
+                  {num(activeLines.reduce((acc, curr) => acc + Number(curr.quantity || 0), 0))} Units
+                </span>
+              </div>
+              <div className="flex justify-between py-1.5 text-base font-bold">
+                <span>Total Goods Value:</span>
+                <span className="text-primary font-mono">{inr(totalAmount)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Amount in Words */}
+          <div className="mb-8 p-3 bg-muted/10 rounded border">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Amount in Words</p>
+            <p className="text-xs font-medium">{amountInWords}</p>
+          </div>
+
+          {/* Signature / Terms footer */}
+          <div className="grid grid-cols-2 gap-6 mt-12 pt-6 border-t border-dashed">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                Receiver's Acknowledgment
+              </p>
+              <p className="text-[10px] text-muted-foreground mb-12">
+                Received goods in perfect condition.
+              </p>
+              <div className="border-t border-dashed w-3/4">
+                <p className="text-[10px] text-muted-foreground mt-1">Signature &amp; Date</p>
+              </div>
+            </div>
+
+            <div className="text-right flex flex-col items-end justify-between">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                  For {company.name}
+                </p>
+                <p className="text-[10px] text-muted-foreground mb-12">
+                  Authorized Signatory Stamp
+                </p>
+              </div>
+              <div className="border-t border-dashed w-3/4">
+                <p className="text-[10px] text-muted-foreground mt-1">Authorized Signature</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Print Styles */}
+        <style>{`
+          @media print {
+            .no-print { display: none !important; }
+            .challan-printable {
+              border: none !important;
+              box-shadow: none !important;
+              padding: 0 !important;
+              max-width: 100% !important;
+            }
+            body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -474,6 +799,14 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
         description="Outward Goods Dispatch Notes validated against Customer Master with Real-Time Stock Tracking."
         actions={
           <div className="flex items-center gap-2">
+            {!isNew && (
+              <Button
+                variant="outline"
+                onClick={() => setIsEditMode(false)}
+              >
+                Cancel Edit
+              </Button>
+            )}
             <Badge variant="default" className="bg-primary text-primary-foreground">
               <Truck className="mr-1 h-3.5 w-3.5" /> Outward Dispatch
             </Badge>
@@ -486,7 +819,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
               ) : (
                 <CheckCircle2 className="mr-1 h-4 w-4" />
               )}
-              Dispatch &amp; Deduct Stock
+              {isNew ? "Dispatch & Deduct Stock" : "Save Changes"}
             </Button>
           </div>
         }
@@ -501,6 +834,36 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Company Logo and Info Header */}
+            <div className="md:col-span-2 border-b pb-4 mb-2 flex items-start justify-between">
+              <div className="flex items-start gap-3">
+                {company.logo_url ? (
+                  <img
+                    src={company.logo_url}
+                    alt={company.name}
+                    className="h-12 w-12 object-contain rounded border"
+                  />
+                ) : (
+                  <div className="h-12 w-12 rounded bg-primary/10 flex items-center justify-center text-sm font-bold text-primary border">
+                    {(company.name || "CO").slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground">{company.name || "Company Details"}</h4>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0.5">
+                    {company.address && <p>{companyAddress}</p>}
+                    {company.phone && <p>Phone: {company.phone}</p>}
+                    {company.vat_number && <p>VAT: {company.vat_number}</p>}
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <Badge variant="outline" className="text-[10px] font-mono tracking-wider uppercase bg-primary/5 text-primary border-primary/20">
+                  Delivery Challan
+                </Badge>
+              </div>
+            </div>
+
             <div className="md:col-span-2">
               <Label className="mb-1 block text-xs font-medium text-muted-foreground">
                 Customer (Validated from Master)
@@ -610,9 +973,45 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
             <CardTitle className="text-base flex items-center gap-2">
               <Package className="h-4 w-4 text-primary" /> Dispatched Items (From Inventory Master)
             </CardTitle>
-            <Button size="sm" variant="outline" onClick={addLine}>
-              <Plus className="mr-1 h-4 w-4" /> Add Item
-            </Button>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Warehouse Filter */}
+              {allWarehouses.length > 0 && (
+                <Select
+                  value={filterWarehouse}
+                  onValueChange={(v) => {
+                    setFilterWarehouse(v);
+                    setFilterCategory("all"); // reset category when warehouse changes
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[160px] text-xs">
+                    <SelectValue placeholder="All Warehouses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Warehouses</SelectItem>
+                    {allWarehouses.map((wh) => (
+                      <SelectItem key={wh} value={wh}>{wh}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {/* Category Filter */}
+              {allCategories.length > 0 && (
+                <Select value={filterCategory} onValueChange={setFilterCategory}>
+                  <SelectTrigger className="h-8 w-[160px] text-xs">
+                    <SelectValue placeholder="All Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Categories</SelectItem>
+                    {allCategories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button size="sm" variant="outline" onClick={addLine}>
+                <Plus className="mr-1 h-4 w-4" /> Add Item
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table className="table-fixed min-w-[1260px]">
@@ -667,6 +1066,11 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                                 lot_number: firstLot?.lot_number || (row.lot_number as string) || "",
                                 expiry_date: firstLot?.expiry_date || (row.expiry_date as string) || "",
                                 created_at: firstLot?.created_at || (row.created_at as string) || "",
+                                category: (row.category as string) || "",
+                                parent_category: (row.parent_category as string) || "",
+                                sub_parent_category: (row.sub_parent_category as string) || "",
+                                sub_category: (row.sub_category as string) || "",
+                                warehouse: (row.warehouse as string) || "",
                               });
                             } else {
                               updateLine(i, { ref_id: null });
@@ -682,6 +1086,20 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                         />
                         {l.ref_id ? (
                           <div className="mt-1 space-y-0.5">
+                            {/* Warehouse badge */}
+                            {l.warehouse ? (
+                              <div className="text-[10px] text-blue-600 font-medium truncate">
+                                📦 {l.warehouse}
+                              </div>
+                            ) : null}
+                            {/* Category breadcrumb */}
+                            {(l.category || l.parent_category || l.sub_parent_category || l.sub_category) ? (
+                              <div className="text-[10px] text-muted-foreground truncate">
+                                {[l.category, l.parent_category, l.sub_parent_category, l.sub_category]
+                                  .filter(Boolean)
+                                  .join(" › ")}
+                              </div>
+                            ) : null}
                             {(() => {
                               const isAlt = l.alt_uom && l.uom === l.alt_uom && Number(l.alt_uom_conversion || 0) > 0;
                               const conv = isAlt ? Number(l.alt_uom_conversion) : 1;
@@ -751,8 +1169,8 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                         {(() => {
                           const isAlt = l.alt_uom && l.uom === l.alt_uom && Number(l.alt_uom_conversion || 0) > 0;
                           const reqBaseQty = isAlt
-                            ? Number(l.quantity || 0) / Number(l.alt_uom_conversion)
-                            : Number(l.quantity || 0);
+                              ? Number(l.quantity || 0) / Number(l.alt_uom_conversion)
+                              : Number(l.quantity || 0);
                           const availBaseQty = Number(l.available_qty || 0);
                           const isOverStock = l.ref_id && availBaseQty > 0 && reqBaseQty > availBaseQty;
 

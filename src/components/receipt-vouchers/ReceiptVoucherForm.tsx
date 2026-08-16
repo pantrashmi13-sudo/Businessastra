@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Save, Plus, Trash2 } from "lucide-react";
+import { Loader2, Save } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -30,17 +30,17 @@ import {
 } from "@/components/ui/select";
 import { EntityCombobox, type EntityOption } from "@/components/bills/EntityCombobox";
 import {
-  vendorSchema,
-  vendorFields,
+  customerSchema,
+  customerFields,
 } from "@/components/masters/schemas";
-import { formatDate, adToBsInput, bsInputToAd, type DateFormat } from "@/lib/date-conversion";
+import { adToBsInput, bsInputToAd } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { inr, toNumber } from "@/lib/format";
 
-type PayeeType = "vendor" | "other";
-type AdjustmentType = "bill_wise" | "simple";
+type PayerType = "customer" | "other";
+type AdjustmentType = "invoice_wise" | "simple";
 
-const PAYMENT_MODES = [
+const RECEIPT_MODES = [
   { value: "petty_cash", label: "Petty Cash" },
   { value: "qr", label: "QR" },
   { value: "cheque", label: "Cheque" },
@@ -51,110 +51,103 @@ const PAYMENT_MODES = [
   { value: "other", label: "Other" },
 ];
 
-interface BillRow {
+interface InvoiceRow {
   id: string;
-  bill_number: string | null;
-  internal_bill_number: string | null;
-  invoice_date: string | null;
-  final_amount: number;
+  invoice_number: string;
+  invoice_date: string;
+  total_amount: number;
   paid_amount: number;
   outstanding: number;
 }
 
-interface BillAllocation {
-  bill_id: string;
-  bill_number: string | null;
-  internal_bill_number: string | null;
+interface InvoiceAllocation {
+  invoice_id: string;
+  invoice_number: string;
   outstanding: number;
   amount_applied: number;
 }
 
-interface PaymentVoucherFormProps {
+interface ReceiptVoucherFormProps {
   initial?: Record<string, unknown> | null;
-  existingBillAllocations?: BillAllocation[];
+  existingInvoiceAllocations?: InvoiceAllocation[];
   viewOnly?: boolean;
 }
 
-export function PaymentVoucherForm({
+export function ReceiptVoucherForm({
   initial,
-  existingBillAllocations,
+  existingInvoiceAllocations,
   viewOnly = false,
-}: PaymentVoucherFormProps) {
+}: ReceiptVoucherFormProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const dateFormat = useDateFormat();
 
-  // Form state
-  const [payeeType, setPayeeType] = useState<PayeeType>(
-    (initial?.payee_type as PayeeType) || "vendor"
+  const [payerType, setPayerType] = useState<PayerType>(
+    (initial?.payer_type as PayerType) || "customer"
   );
-  const [vendorId, setVendorId] = useState<string | null>(
-    (initial?.vendor_id as string) || null
+  const [customerId, setCustomerId] = useState<string | null>(
+    (initial?.customer_id as string) || null
   );
-  const [vendorRow, setVendorRow] = useState<Record<string, unknown> | null>(null);
-  const [payeeName, setPayeeName] = useState(
-    (initial?.payee_name as string) || ""
+  const [customerRow, setCustomerRow] = useState<Record<string, unknown> | null>(null);
+  const [payerName, setPayerName] = useState(
+    (initial?.payer_name as string) || ""
   );
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(
     (initial?.adjustment_type as AdjustmentType) || "simple"
   );
-  const [paymentMode, setPaymentMode] = useState(
-    (initial?.payment_mode as string) || "petty_cash"
+  const [receiptMode, setReceiptMode] = useState(
+    (initial?.receipt_mode as string) || "petty_cash"
   );
   const [referenceNumber, setReferenceNumber] = useState(
     (initial?.reference_number as string) || ""
   );
-  const [paymentDate, setPaymentDate] = useState(
-    (initial?.payment_date as string) || new Date().toISOString().split("T")[0]
+  const [receiptDate, setReceiptDate] = useState(
+    (initial?.receipt_date as string) || new Date().toISOString().split("T")[0]
   );
   const [totalAmount, setTotalAmount] = useState(
     toNumber(initial?.total_amount, 0)
   );
   const [remarks, setRemarks] = useState((initial?.remarks as string) || "");
-  const [paidFromType, setPaidFromType] = useState(
-    (initial?.paid_from_type as string) || ""
+  const [receivedInType, setReceivedInType] = useState(
+    (initial?.received_in_type as string) || ""
   );
-  const [paidFromId, setPaidFromId] = useState(
-    (initial?.paid_from_id as string) || ""
+  const [receivedInId, setReceivedInId] = useState(
+    (initial?.received_in_id as string) || ""
   );
-
-  // Bill-wise state
-  const [billAllocations, setBillAllocations] = useState<BillAllocation[]>(
-    existingBillAllocations || []
+  const [invoiceAllocations, setInvoiceAllocations] = useState<InvoiceAllocation[]>(
+    existingInvoiceAllocations || []
   );
   const [useBsDate, setUseBsDate] = useState(dateFormat === "bs");
 
-  // Date display value (converted to BS if needed)
   const dateDisplayValue = useMemo(() => {
-    if (!paymentDate) return "";
+    if (!receiptDate) return "";
     if (useBsDate || dateFormat === "bs") {
-      return adToBsInput(paymentDate);
+      return adToBsInput(receiptDate);
     }
-    return paymentDate;
-  }, [paymentDate, useBsDate, dateFormat]);
+    return receiptDate;
+  }, [receiptDate, useBsDate, dateFormat]);
 
-  // Fetch vendors for combobox
-  const vendorsQuery = useQuery({
-    queryKey: ["vendors", "list"],
+  const customersQuery = useQuery({
+    queryKey: ["customers", "list"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("vendors")
-        .select("id, name, vat_number, pan")
+        .from("customers")
+        .select("id, name, vat_number, phone")
         .order("name");
       if (error) throw error;
       return data ?? [];
     },
   });
 
-  const vendorOptions: EntityOption[] = useMemo(
+  const customerOptions: EntityOption[] = useMemo(
     () =>
-      (vendorsQuery.data ?? []).map((v) => ({
-        id: v.id,
-        label: v.name,
-        sublabel: v.vat_number || v.pan || undefined,
-        raw: v,
+      (customersQuery.data ?? []).map((c) => ({
+        id: c.id,
+        label: c.name,
+        sublabel: c.vat_number || undefined,
+        raw: c,
       })),
-    [vendorsQuery.data]
+    [customersQuery.data]
   );
 
   // Fetch petty cash accounts
@@ -185,8 +178,8 @@ export function PaymentVoucherForm({
     },
   });
 
-  // Combined paid from options
-  const paidFromOptions = useMemo(() => {
+  // Combined received in options
+  const receivedInOptions = useMemo(() => {
     const options: { value: string; label: string; type: string; balance: number }[] = [];
     (pettyCashQuery.data ?? []).forEach((pc) => {
       options.push({
@@ -207,295 +200,276 @@ export function PaymentVoucherForm({
     return options;
   }, [pettyCashQuery.data, bankAccountsQuery.data]);
 
-  // Fetch unpaid bills when vendor is selected and adjustment is bill-wise
-  const unpaidBillsQuery = useQuery({
-    queryKey: ["unpaid-bills", vendorId],
+  // Fetch unpaid sales invoices for selected customer
+  const unpaidInvoicesQuery = useQuery({
+    queryKey: ["unpaid-sales-invoices", customerId],
     queryFn: async () => {
-      if (!vendorId) return [];
+      if (!customerId) return [];
 
-      // Get all approved bills for this vendor
-      const { data: bills, error: billsErr } = await supabase
-        .from("bills")
-        .select("id, bill_number, internal_bill_number, invoice_date, final_amount")
-        .eq("vendor_id", vendorId)
-        .eq("status", "approved")
+      const { data: invoices, error: invErr } = await supabase
+        .from("sales_invoices" as any)
+        .select("id, invoice_number, invoice_date, total_amount")
+        .eq("customer_id", customerId)
         .order("invoice_date", { ascending: true });
 
-      if (billsErr) throw billsErr;
-      if (!bills || bills.length === 0) return [];
+      if (invErr) throw invErr;
+      if (!invoices || invoices.length === 0) return [];
 
-      // Get existing payment allocations for these bills
-      const billIds = bills.map((b) => b.id);
+      const invoiceIds = invoices.map((inv: any) => inv.id);
       const { data: allocations } = await supabase
-        .from("payment_voucher_bills")
-        .select("bill_id, amount_applied")
-        .in("bill_id", billIds);
+        .from("receipt_voucher_invoices" as any)
+        .select("invoice_id, amount_applied")
+        .in("invoice_id", invoiceIds);
 
-      // Compute outstanding per bill
       const paidMap = new Map<string, number>();
-      (allocations ?? []).forEach((a) => {
-        paidMap.set(a.bill_id, (paidMap.get(a.bill_id) ?? 0) + Number(a.amount_applied));
+      (allocations ?? []).forEach((a: any) => {
+        paidMap.set(a.invoice_id, (paidMap.get(a.invoice_id) ?? 0) + Number(a.amount_applied));
       });
 
-      return bills
-        .map((b) => {
-          const paid = paidMap.get(b.id) ?? 0;
-          const outstanding = Number(b.final_amount) - paid;
+      return invoices
+        .map((inv: any) => {
+          const paid = paidMap.get(inv.id) ?? 0;
+          const outstanding = Number(inv.total_amount) - paid;
           return {
-            id: b.id,
-            bill_number: b.bill_number,
-            internal_bill_number: b.internal_bill_number,
-            invoice_date: b.invoice_date,
-            final_amount: Number(b.final_amount),
+            id: inv.id,
+            invoice_number: inv.invoice_number,
+            invoice_date: inv.invoice_date,
+            total_amount: Number(inv.total_amount),
             paid_amount: paid,
             outstanding: Math.max(0, outstanding),
           };
         })
-        .filter((b) => b.outstanding > 0);
+        .filter((inv: InvoiceRow) => inv.outstanding > 0);
     },
-    enabled: payeeType === "vendor" && !!vendorId && adjustmentType === "bill_wise",
+    enabled: payerType === "customer" && !!customerId && adjustmentType === "invoice_wise",
   });
 
-  // Auto-set total from bill allocations in bill-wise mode
   useEffect(() => {
-    if (adjustmentType === "bill_wise") {
-      const sum = billAllocations.reduce(
+    if (adjustmentType === "invoice_wise") {
+      const sum = invoiceAllocations.reduce(
         (acc, a) => acc + toNumber(a.amount_applied, 0),
         0
       );
       setTotalAmount(sum);
     }
-  }, [billAllocations, adjustmentType]);
+  }, [invoiceAllocations, adjustmentType]);
 
-  // When vendor changes, reset bill allocations
   useEffect(() => {
-    setBillAllocations([]);
-  }, [vendorId]);
+    setInvoiceAllocations([]);
+  }, [customerId]);
 
-  // Set vendor row from options
   useEffect(() => {
-    if (vendorId) {
-      const found = vendorOptions.find((o) => o.id === vendorId);
-      if (found) setVendorRow(found.raw);
+    if (customerId) {
+      const found = customerOptions.find((o) => o.id === customerId);
+      if (found) setCustomerRow(found.raw);
     }
-  }, [vendorId, vendorOptions]);
+  }, [customerId, customerOptions]);
 
-  // Initialize bill allocations from props
   useEffect(() => {
-    if (existingBillAllocations && existingBillAllocations.length > 0) {
-      setBillAllocations(existingBillAllocations);
+    if (existingInvoiceAllocations && existingInvoiceAllocations.length > 0) {
+      setInvoiceAllocations(existingInvoiceAllocations);
     }
-  }, [existingBillAllocations]);
+  }, [existingInvoiceAllocations]);
 
-  // Handle date input change
   function handleDateChange(value: string) {
     if (!value) {
-      setPaymentDate("");
+      setReceiptDate("");
       return;
     }
     if (dateFormat === "bs" || useBsDate) {
-      // BS input -> convert to AD for storage
       const adDate = bsInputToAd(value);
-      if (adDate) {
-        setPaymentDate(adDate);
-      }
+      if (adDate) setReceiptDate(adDate);
     } else {
-      setPaymentDate(value);
+      setReceiptDate(value);
     }
   }
 
-  // Toggle between AD/BS date input
   function toggleDateFormat() {
     setUseBsDate(!useBsDate);
   }
 
-  // Update bill allocation
-  function updateBillAllocation(billId: string, amount: number) {
-    setBillAllocations((prev) => {
-      const existing = prev.find((a) => a.bill_id === billId);
+  function updateInvoiceAllocation(invoiceId: string, amount: number) {
+    setInvoiceAllocations((prev) => {
+      const existing = prev.find((a) => a.invoice_id === invoiceId);
       if (existing) {
         if (amount <= 0) {
-          return prev.filter((a) => a.bill_id !== billId);
+          return prev.filter((a) => a.invoice_id !== invoiceId);
         }
         return prev.map((a) =>
-          a.bill_id === billId ? { ...a, amount_applied: amount } : a
+          a.invoice_id === invoiceId ? { ...a, amount_applied: amount } : a
         );
       }
       if (amount <= 0) return prev;
-      const bill = unpaidBillsQuery.data?.find((b) => b.id === billId);
-      if (!bill) return prev;
+      const inv = unpaidInvoicesQuery.data?.find((i) => i.id === invoiceId);
+      if (!inv) return prev;
       return [
         ...prev,
         {
-          bill_id: billId,
-          bill_number: bill.bill_number,
-          internal_bill_number: bill.internal_bill_number,
-          outstanding: bill.outstanding,
+          invoice_id: invoiceId,
+          invoice_number: inv.invoice_number,
+          outstanding: inv.outstanding,
           amount_applied: amount,
         },
       ];
     });
   }
 
-  // Add all bills with full outstanding
-  function addAllBills() {
-    if (!unpaidBillsQuery.data) return;
-    setBillAllocations(
-      unpaidBillsQuery.data.map((b) => ({
-        bill_id: b.id,
-        bill_number: b.bill_number,
-        internal_bill_number: b.internal_bill_number,
-        outstanding: b.outstanding,
-        amount_applied: b.outstanding,
+  function addAllInvoices() {
+    if (!unpaidInvoicesQuery.data) return;
+    setInvoiceAllocations(
+      unpaidInvoicesQuery.data.map((inv) => ({
+        invoice_id: inv.id,
+        invoice_number: inv.invoice_number,
+        outstanding: inv.outstanding,
+        amount_applied: inv.outstanding,
       }))
     );
   }
 
-  // Mutation to save payment voucher
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // Validate
-      if (payeeType === "vendor" && !vendorId) {
-        throw new Error("Please select a vendor");
+      if (payerType === "customer" && !customerId) {
+        throw new Error("Please select a customer");
       }
-      if (payeeType === "other" && !payeeName.trim()) {
-        throw new Error("Please enter payee name");
+      if (payerType === "other" && !payerName.trim()) {
+        throw new Error("Please enter payer name");
       }
       if (totalAmount <= 0) {
         throw new Error("Amount must be greater than zero");
       }
-      if (adjustmentType === "bill_wise" && billAllocations.length === 0) {
-        throw new Error("Please allocate amounts to at least one bill");
+      if (adjustmentType === "invoice_wise" && invoiceAllocations.length === 0) {
+        throw new Error("Please allocate amounts to at least one invoice");
       }
-      if (!paidFromType || !paidFromId) {
-        throw new Error("Please select an account to pay from");
+      if (!receivedInType || !receivedInId) {
+        throw new Error("Please select an account to receive into");
       }
 
-      // Get current company (default company first, then fallback to first available)
       const { data: companies } = await supabase
         .from("companies")
         .select("id, is_default");
-      const activeCompany = companies?.find((c) => c.is_default) ?? companies?.[0];
+      const activeCompany = companies?.find((c: any) => c.is_default) ?? companies?.[0];
       const companyId = activeCompany?.id ?? null;
 
       if (!companyId) {
         throw new Error("No active company found. Please configure a company in Masters -> Companies first.");
       }
 
-      // Generate voucher number
+      // Generate voucher number with retry on duplicate constraint
+      const now = new Date();
+      const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const prefix = `RV-${ym}-`;
+
       const { data: existing } = await supabase
-        .from("payment_vouchers")
+        .from("receipt_vouchers" as any)
         .select("voucher_number")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false })
+        .like("voucher_number", `${prefix}%`)
+        .order("voucher_number", { ascending: false })
         .limit(1);
 
       let nextNum = 1;
       if (existing && existing.length > 0) {
-        const lastNum = parseInt(
-          existing[0].voucher_number.replace("PV-", ""),
-          10
-        );
+        const parts = existing[0].voucher_number.split("-");
+        const lastNum = parseInt(parts[parts.length - 1], 10);
         if (!isNaN(lastNum)) nextNum = lastNum + 1;
       }
-      const voucherNumber = `PV-${String(nextNum).padStart(4, "0")}`;
 
-      // Insert payment voucher
-      const { data: voucher, error: voucherErr } = await supabase
-        .from("payment_vouchers")
-        .insert({
-          company_id: companyId,
-          voucher_number: voucherNumber,
-          payee_type: payeeType,
-          vendor_id: payeeType === "vendor" ? vendorId : null,
-          payee_name: payeeType === "other" ? payeeName : null,
-          payment_mode: paymentMode,
-          reference_number: referenceNumber || null,
-          payment_date: paymentDate,
-          total_amount: totalAmount,
-          adjustment_type: adjustmentType,
-          remarks: remarks || null,
-          paid_from_type: paidFromType,
-          paid_from_id: paidFromId,
-          status: "final",
-        })
-        .select()
-        .single();
+      // Retry loop: on duplicate key, increment and retry (up to 10 times)
+      let voucher: any = null;
+      let voucherErr: any = null;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const voucherNumber = `${prefix}${String(nextNum + attempt).padStart(3, "0")}`;
+        const result = await supabase
+          .from("receipt_vouchers" as any)
+          .insert({
+            company_id: companyId,
+            voucher_number: voucherNumber,
+            payer_type: payerType,
+            customer_id: payerType === "customer" ? customerId : null,
+            payer_name: payerType === "other" ? payerName : null,
+            receipt_mode: receiptMode,
+            reference_number: referenceNumber || null,
+            receipt_date: receiptDate,
+            total_amount: totalAmount,
+            adjustment_type: adjustmentType,
+            remarks: remarks || null,
+            received_in_type: receivedInType,
+            received_in_id: receivedInId,
+            status: "final",
+          })
+          .select()
+          .single();
+
+        if (!result.error) {
+          voucher = result.data;
+          voucherErr = null;
+          break;
+        }
+
+        // Only retry on unique constraint violation, throw everything else immediately
+        const isDuplicate =
+          result.error.code === "23505" ||
+          (result.error.message ?? "").includes("unique") ||
+          (result.error.message ?? "").includes("duplicate");
+
+        if (!isDuplicate) {
+          voucherErr = result.error;
+          break;
+        }
+
+        voucherErr = result.error; // keep last error in case all retries fail
+      }
 
       if (voucherErr) throw voucherErr;
+      if (!voucher) throw new Error("Failed to create receipt voucher after retries.");
 
-      // Update balance of the paid from account
-      if (paidFromType === "petty_cash" && paidFromId) {
+
+      // Update balance of the received in account
+      if (receivedInType === "petty_cash" && receivedInId) {
         const { data: pc } = await supabase
           .from("petty_cash_accounts")
           .select("current_balance")
-          .eq("id", paidFromId)
+          .eq("id", receivedInId)
           .single();
         if (pc) {
           await supabase
             .from("petty_cash_accounts")
-            .update({ current_balance: Number(pc.current_balance) - totalAmount })
-            .eq("id", paidFromId);
+            .update({ current_balance: Number(pc.current_balance) + totalAmount })
+            .eq("id", receivedInId);
         }
-      } else if (paidFromType === "bank" && paidFromId) {
+      } else if (receivedInType === "bank" && receivedInId) {
         const { data: bank } = await supabase
           .from("bank_accounts")
           .select("current_balance")
-          .eq("id", paidFromId)
+          .eq("id", receivedInId)
           .single();
         if (bank) {
           await supabase
             .from("bank_accounts")
-            .update({ current_balance: Number(bank.current_balance) - totalAmount })
-            .eq("id", paidFromId);
+            .update({ current_balance: Number(bank.current_balance) + totalAmount })
+            .eq("id", receivedInId);
         }
       }
 
-      // Insert bill allocations if bill-wise
-      if (adjustmentType === "bill_wise" && billAllocations.length > 0) {
+      if (adjustmentType === "invoice_wise" && invoiceAllocations.length > 0) {
         const { error: allocErr } = await supabase
-          .from("payment_voucher_bills")
+          .from("receipt_voucher_invoices" as any)
           .insert(
-            billAllocations.map((a) => ({
-              payment_voucher_id: voucher.id,
-              bill_id: a.bill_id,
+            invoiceAllocations.map((a) => ({
+              receipt_voucher_id: voucher.id,
+              invoice_id: a.invoice_id,
               amount_applied: a.amount_applied,
             }))
           );
         if (allocErr) throw allocErr;
-
-        // Post debit entries to ledger for each bill
-        for (const alloc of billAllocations) {
-          const bill = unpaidBillsQuery.data?.find(
-            (b) => b.id === alloc.bill_id
-          );
-          await supabase.from("ledgers").insert({
-            vendor_id: vendorId!,
-            bill_id: alloc.bill_id,
-            date: paymentDate,
-            description: `Payment against Bill #${bill?.bill_number || alloc.bill_number || alloc.bill_id.slice(0, 8)}`,
-            debit: alloc.amount_applied,
-            credit: 0,
-          });
-        }
-      } else if (payeeType === "vendor" && vendorId) {
-        // Simple payment - post a general debit entry
-        await supabase.from("ledgers").insert({
-          vendor_id: vendorId,
-          date: paymentDate,
-          description: `Payment ${voucherNumber}${remarks ? " - " + remarks : ""}`,
-          debit: totalAmount,
-          credit: 0,
-        });
       }
 
       return voucher;
     },
     onSuccess: (voucher) => {
-      toast.success("Payment voucher created successfully");
-      queryClient.invalidateQueries({ queryKey: ["payment-vouchers"] });
+      toast.success("Receipt voucher created successfully");
+      queryClient.invalidateQueries({ queryKey: ["receipt-vouchers"] });
       navigate({
-        to: "/receipt-payment/payment-voucher/$id",
+        to: "/receipt-payment/receipt-voucher/$id",
         params: { id: voucher.id },
       });
     },
@@ -504,73 +478,68 @@ export function PaymentVoucherForm({
     },
   });
 
-  if (viewOnly && initial) {
-    // View-only mode is handled by PaymentVoucherView
-    return null;
-  }
-
   return (
     <>
       <PageHeader
-        title="New Payment Voucher"
-        description="Record a payment to a vendor or other payee."
+        title="New Receipt Voucher"
+        description="Record an amount received from a customer."
       />
       <div className="space-y-6 p-6">
-        {/* Payee Type */}
+        {/* Payer Type */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Payee Details</CardTitle>
+            <CardTitle className="text-lg">Payer Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Payee Type</Label>
+              <Label>Payer Type</Label>
               <RadioGroup
-                value={payeeType}
-                onValueChange={(v) => setPayeeType(v as PayeeType)}
+                value={payerType}
+                onValueChange={(v) => setPayerType(v as PayerType)}
                 className="flex gap-6"
                 disabled={viewOnly}
               >
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="vendor" id="pv-vendor" />
-                  <Label htmlFor="pv-vendor" className="font-normal">
-                    Vendor
+                  <RadioGroupItem value="customer" id="rv-customer" />
+                  <Label htmlFor="rv-customer" className="font-normal">
+                    Customer
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="other" id="pv-other" />
-                  <Label htmlFor="pv-other" className="font-normal">
+                  <RadioGroupItem value="other" id="rv-other" />
+                  <Label htmlFor="rv-other" className="font-normal">
                     Other
                   </Label>
                 </div>
               </RadioGroup>
             </div>
 
-            {payeeType === "vendor" ? (
+            {payerType === "customer" ? (
               <div className="space-y-2">
-                <Label>Vendor</Label>
+                <Label>Customer</Label>
                 <EntityCombobox
-                  value={vendorId}
+                  value={customerId}
                   onChange={(id, row) => {
-                    setVendorId(id);
-                    setVendorRow(row);
+                    setCustomerId(id);
+                    setCustomerRow(row);
                   }}
-                  options={vendorOptions}
-                  placeholder="Select vendor…"
-                  addLabel="Add new vendor"
-                  table="vendors"
-                  schema={vendorSchema}
-                  fields={vendorFields}
+                  options={customerOptions}
+                  placeholder="Select customer…"
+                  addLabel="Add new customer"
+                  table="customers"
+                  schema={customerSchema}
+                  fields={customerFields}
                   nameKey="name"
                   disabled={viewOnly}
                 />
               </div>
             ) : (
               <div className="space-y-2">
-                <Label>Payee Name</Label>
+                <Label>Payer Name</Label>
                 <Input
-                  value={payeeName}
-                  onChange={(e) => setPayeeName(e.target.value)}
-                  placeholder="Enter payee name"
+                  value={payerName}
+                  onChange={(e) => setPayerName(e.target.value)}
+                  placeholder="Enter payer name"
                   disabled={viewOnly}
                 />
               </div>
@@ -578,25 +547,25 @@ export function PaymentVoucherForm({
           </CardContent>
         </Card>
 
-        {/* Payment Details */}
+        {/* Receipt Details */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Payment Details</CardTitle>
+            <CardTitle className="text-lg">Receipt Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Payment Mode</Label>
+                <Label>Receipt Mode</Label>
                 <Select
-                  value={paymentMode}
-                  onValueChange={setPaymentMode}
+                  value={receiptMode}
+                  onValueChange={setReceiptMode}
                   disabled={viewOnly}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PAYMENT_MODES.map((m) => (
+                    {RECEIPT_MODES.map((m) => (
                       <SelectItem key={m.value} value={m.value}>
                         {m.label}
                       </SelectItem>
@@ -616,13 +585,13 @@ export function PaymentVoucherForm({
               </div>
 
               <div className="space-y-2">
-                <Label>Paid From *</Label>
+                <Label>Received In *</Label>
                 <Select
-                  value={`${paidFromType}:${paidFromId}`}
+                  value={`${receivedInType}:${receivedInId}`}
                   onValueChange={(val) => {
                     const [type, id] = val.split(":");
-                    setPaidFromType(type);
-                    setPaidFromId(id);
+                    setReceivedInType(type);
+                    setReceivedInId(id);
                   }}
                   disabled={viewOnly}
                 >
@@ -646,7 +615,7 @@ export function PaymentVoucherForm({
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label>Payment Date</Label>
+                  <Label>Receipt Date</Label>
                   <Button
                     type="button"
                     variant="ghost"
@@ -660,15 +629,15 @@ export function PaymentVoucherForm({
                 </div>
                 {useBsDate || dateFormat === "bs" ? (
                   <BsDatePicker
-                    value={paymentDate}
-                    onChange={(adDate) => setPaymentDate(adDate)}
+                    value={receiptDate}
+                    onChange={(adDate) => setReceiptDate(adDate)}
                     className="w-full"
                     disabled={viewOnly}
                   />
                 ) : (
                   <Input
                     type="date"
-                    value={paymentDate}
+                    value={receiptDate}
                     onChange={(e) => handleDateChange(e.target.value)}
                     disabled={viewOnly}
                   />
@@ -684,11 +653,11 @@ export function PaymentVoucherForm({
                   placeholder="0.00"
                   min={0}
                   step={0.01}
-                  disabled={viewOnly || adjustmentType === "bill_wise"}
+                  disabled={viewOnly || adjustmentType === "invoice_wise"}
                 />
-                {adjustmentType === "bill_wise" && (
+                {adjustmentType === "invoice_wise" && (
                   <p className="text-xs text-muted-foreground">
-                    Auto-calculated from bill allocations
+                    Auto-calculated from invoice allocations
                   </p>
                 )}
               </div>
@@ -707,11 +676,11 @@ export function PaymentVoucherForm({
           </CardContent>
         </Card>
 
-        {/* Adjustment Type */}
-        {payeeType === "vendor" && vendorId && (
+        {/* Invoice-wise Adjustment */}
+        {payerType === "customer" && customerId && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Payment Adjustment</CardTitle>
+              <CardTitle className="text-lg">Receipt Adjustment</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -723,52 +692,52 @@ export function PaymentVoucherForm({
                   disabled={viewOnly}
                 >
                   <div className="flex items-center gap-2">
-                    <RadioGroupItem value="bill_wise" id="adj-billwise" />
-                    <Label htmlFor="adj-billwise" className="font-normal">
-                      Bill-wise Adjustment
+                    <RadioGroupItem value="invoice_wise" id="adj-invoicewise" />
+                    <Label htmlFor="adj-invoicewise" className="font-normal">
+                      Invoice-wise Adjustment
                     </Label>
                   </div>
                   <div className="flex items-center gap-2">
-                    <RadioGroupItem value="simple" id="adj-simple" />
-                    <Label htmlFor="adj-simple" className="font-normal">
-                      Simple Payment
+                    <RadioGroupItem value="simple" id="adj-simple-rv" />
+                    <Label htmlFor="adj-simple-rv" className="font-normal">
+                      Simple Receipt
                     </Label>
                   </div>
                 </RadioGroup>
               </div>
 
-              {adjustmentType === "bill_wise" && (
+              {adjustmentType === "invoice_wise" && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground">
-                      Select bills to apply payment against:
+                      Select invoices to apply receipt against:
                     </p>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={addAllBills}
-                      disabled={viewOnly || unpaidBillsQuery.isLoading}
+                      onClick={addAllInvoices}
+                      disabled={viewOnly || unpaidInvoicesQuery.isLoading}
                     >
                       Add All
                     </Button>
                   </div>
 
-                  {unpaidBillsQuery.isLoading ? (
+                  {unpaidInvoicesQuery.isLoading ? (
                     <div className="flex items-center justify-center py-8 text-muted-foreground">
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading unpaid bills…
+                      Loading unpaid invoices…
                     </div>
-                  ) : unpaidBillsQuery.data?.length === 0 ? (
+                  ) : unpaidInvoicesQuery.data?.length === 0 ? (
                     <div className="py-8 text-center text-muted-foreground">
-                      No outstanding bills found for this vendor.
+                      No outstanding sales invoices found for this customer.
                     </div>
                   ) : (
                     <div className="rounded-md border">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Bill Number</TableHead>
+                            <TableHead>Invoice Number</TableHead>
                             <TableHead className="w-28">Date</TableHead>
                             <TableHead className="w-32 text-right">
                               Total
@@ -777,49 +746,47 @@ export function PaymentVoucherForm({
                               Outstanding
                             </TableHead>
                             <TableHead className="w-32 text-right">
-                              Pay Amount
+                              Receive Amount
                             </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {(unpaidBillsQuery.data ?? []).map((bill) => {
-                            const allocation = billAllocations.find(
-                              (a) => a.bill_id === bill.id
+                          {(unpaidInvoicesQuery.data ?? []).map((inv) => {
+                            const allocation = invoiceAllocations.find(
+                              (a) => a.invoice_id === inv.id
                             );
-                            const payAmount = allocation?.amount_applied ?? 0;
+                            const receiveAmount = allocation?.amount_applied ?? 0;
 
                             return (
-                              <TableRow key={bill.id}>
-                                <TableCell className="font-medium">
-                                  {bill.bill_number ||
-                                    bill.internal_bill_number ||
-                                    "—"}
+                              <TableRow key={inv.id}>
+                                <TableCell className="font-medium font-mono">
+                                  {inv.invoice_number}
                                 </TableCell>
                                 <TableCell className="text-muted-foreground">
-                                  {formatDate(bill.invoice_date, dateFormat)}
+                                  {formatDate(inv.invoice_date, dateFormat)}
                                 </TableCell>
                                 <TableCell className="text-right tabular-nums">
-                                  {inr(bill.final_amount)}
+                                  {inr(inv.total_amount)}
                                 </TableCell>
                                 <TableCell className="text-right tabular-nums font-medium">
-                                  {inr(bill.outstanding)}
+                                  {inr(inv.outstanding)}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <Input
                                     type="number"
-                                    value={payAmount || ""}
+                                    value={receiveAmount || ""}
                                     onChange={(e) =>
-                                      updateBillAllocation(
-                                        bill.id,
+                                      updateInvoiceAllocation(
+                                        inv.id,
                                         Math.min(
                                           toNumber(e.target.value),
-                                          bill.outstanding
+                                          inv.outstanding
                                         )
                                       )
                                     }
                                     placeholder="0"
                                     min={0}
-                                    max={bill.outstanding}
+                                    max={inv.outstanding}
                                     step={0.01}
                                     className="w-28 text-right"
                                     disabled={viewOnly}
@@ -844,17 +811,17 @@ export function PaymentVoucherForm({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">
-                  {payeeType === "vendor"
-                    ? `Paying: ${vendorOptions.find((o) => o.id === vendorId)?.label ?? "—"}`
-                    : `Paying: ${payeeName || "—"}`}
+                  {payerType === "customer"
+                    ? `Receiving from: ${customerOptions.find((o) => o.id === customerId)?.label ?? "—"}`
+                    : `Receiving from: ${payerName || "—"}`}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Mode:{" "}
-                  {PAYMENT_MODES.find((m) => m.value === paymentMode)?.label}
+                  {RECEIPT_MODES.find((m) => m.value === receiptMode)?.label}
                 </p>
-                {paidFromId && (
+                {receivedInId && (
                   <p className="text-sm text-muted-foreground">
-                    Paid From: {paidFromOptions.find((o) => o.value === paidFromId)?.label ?? "—"}
+                    Received In: {receivedInOptions.find((o) => o.value === receivedInId)?.label ?? "—"}
                   </p>
                 )}
               </div>
@@ -884,11 +851,20 @@ export function PaymentVoucherForm({
               ) : (
                 <Save className="mr-2 h-4 w-4" />
               )}
-              Save Payment Voucher
+              Save Receipt Voucher
             </Button>
           </div>
         )}
       </div>
     </>
   );
+}
+
+function formatDate(date: string | null | undefined, dateFormat: string): string {
+  if (!date) return "—";
+  try {
+    return new Date(date).toLocaleDateString("en-IN");
+  } catch {
+    return date;
+  }
 }

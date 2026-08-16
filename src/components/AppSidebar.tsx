@@ -12,6 +12,8 @@ import {
   LogOut,
   Calculator,
   Banknote,
+  Wallet,
+  PackageMinus,
 } from "lucide-react";
 
 import {
@@ -42,12 +44,17 @@ const bills = [
   { title: "All Bills", url: "/bills", icon: FileText },
   { title: "New Bill", url: "/bills/new", icon: Receipt },
   { title: "Delivery Challans", url: "/challans", icon: Truck },
-  { title: "Vendor Ledger", url: "/ledgers", icon: BookOpen },
+  { title: "Consumptions", url: "/consumptions", icon: PackageMinus },
+  { title: "Sales Invoices", url: "/sales-invoices", icon: Receipt },
   { title: "VAT Register", url: "/vat-register", icon: Calculator },
 ];
 
 const receiptPayment = [
-  { title: "Payment Vouchers", url: "/receipt-payment", icon: Banknote },
+  { title: "Receipt & Payment", url: "/receipt-payment", icon: Banknote },
+];
+
+const cashBank = [
+  { title: "Cash & Bank", url: "/cash-bank", icon: Wallet },
 ];
 
 export function AppSidebar() {
@@ -135,6 +142,24 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {receiptPayment.map((m) => (
+                <SidebarMenuItem key={m.url}>
+                  <SidebarMenuButton asChild isActive={isActive(m.url)}>
+                    <Link to={m.url}>
+                      <m.icon />
+                      <span>{m.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Cash &amp; Bank</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {cashBank.map((m) => (
                 <SidebarMenuItem key={m.url}>
                   <SidebarMenuButton asChild isActive={isActive(m.url)}>
                     <Link to={m.url}>

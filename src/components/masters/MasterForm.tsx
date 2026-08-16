@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import type { ReactNode } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Search } from "lucide-react";
+import { Search, Camera, Upload, Trash2, Image as ImageIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -31,7 +31,7 @@ import {
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "textarea" | "switch" | "email" | "select" | "category-group" | "pan-search" | "opening-stock";
+  type?: "text" | "number" | "textarea" | "switch" | "email" | "select" | "category-group" | "pan-search" | "opening-stock" | "logo-upload";
   colSpan?: 1 | 2;
   placeholder?: string;
   options?: string[];
@@ -78,9 +78,103 @@ export function MasterForm<S extends z.ZodTypeAny>({
   const [tempRate, setTempRate] = useState(0);
   const [tempVal, setTempVal] = useState(0);
 
+  // Logo upload and camera capture states
+  const [cameraActive, setCameraActive] = useState(false);
+  const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false,
+      });
+      setVideoStream(stream);
+      setCameraActive(true);
+      // Wait a tick for video element to render, then attach stream
+      setTimeout(() => {
+        const video = document.getElementById("logo-camera-video") as HTMLVideoElement;
+        if (video) video.srcObject = stream;
+      }, 100);
+    } catch (err) {
+      toast.error("Failed to access camera: " + (err as Error).message);
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoStream) {
+      videoStream.getTracks().forEach((track) => track.stop());
+      setVideoStream(null);
+    }
+    setCameraActive(false);
+  };
+
+  const capturePhoto = async () => {
+    const video = document.getElementById("logo-camera-video") as HTMLVideoElement;
+    if (!video) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    stopCamera();
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], `logo-captured-${Date.now()}.jpg`, { type: "image/jpeg" });
+      await handleLogoUpload(file);
+    }, "image/jpeg", 0.85);
+  };
+
+  const handleLogoUpload = async (file: File) => {
+    setUploadingLogo(true);
+    try {
+      const path = `bills/logo-${Date.now()}-${file.name.replace(/[^\w.\-]+/g, "_")}`;
+      
+      // Attempt 1: company-logos bucket
+      let uploadedUrl = "";
+      try {
+        const { error: upErr } = await supabase.storage
+          .from("company-logos")
+          .upload(path, file, { upsert: true, contentType: file.type });
+        if (upErr) {
+          console.warn("Upload to company-logos failed with error:", upErr.message);
+        } else {
+          const { data } = supabase.storage.from("company-logos").getPublicUrl(path);
+          uploadedUrl = data.publicUrl;
+        }
+      } catch (e) {
+        console.warn("Upload to company-logos failed, falling back to bill-attachments", e);
+      }
+
+      // Attempt 2: fallback to bill-attachments bucket
+      if (!uploadedUrl) {
+        const { error: upErr } = await supabase.storage
+          .from("bill-attachments")
+          .upload(path, file, { upsert: true, contentType: file.type });
+        if (upErr) throw upErr;
+        const { data } = supabase.storage.from("bill-attachments").getPublicUrl(path);
+        uploadedUrl = data.publicUrl;
+      }
+
+      form.setValue("logo_url", uploadedUrl as never);
+      toast.success("Logo uploaded successfully");
+    } catch (err) {
+      toast.error("Failed to upload logo: " + (err as Error).message);
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   const mutation = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
       const payload = { ...values };
+      
+      // Remove client-only virtual fields that don't exist in the database table
+      delete payload.opening_stock;
       
       // If creating new item, set current qty to opening_qty
       if (!initial?.id && table === "items") {
@@ -470,6 +564,97 @@ export function MasterForm<S extends z.ZodTypeAny>({
                     Search PAN
                   </Button>
                 </div>
+              ) : f.type === "logo-upload" ? (
+                (() => {
+                  const logoUrl = (form.watch(f.key) as string) ?? "";
+                  return (
+                    <div className="space-y-3">
+                      {/* Logo Preview and Actions */}
+                      <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border border-dashed rounded-lg bg-muted/30">
+                        {logoUrl ? (
+                          <div className="relative group h-20 w-20 rounded border bg-white overflow-hidden shadow-sm flex items-center justify-center shrink-0">
+                            <img src={logoUrl} alt="Company Logo" className="h-full w-full object-contain" />
+                            <button
+                              type="button"
+                              onClick={() => form.setValue(f.key, "" as never)}
+                              className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="h-20 w-20 rounded border bg-muted/60 flex items-center justify-center text-muted-foreground shrink-0 shadow-inner">
+                            <ImageIcon className="h-6 w-6 opacity-40" />
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
+                          <input
+                            type="file"
+                            id="logo-file-input"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (file) await handleLogoUpload(file);
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={uploadingLogo}
+                            onClick={() => document.getElementById("logo-file-input")?.click()}
+                            className="gap-1.5 h-9"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            {uploadingLogo ? "Uploading…" : "Upload File"}
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={uploadingLogo}
+                            onClick={startCamera}
+                            className="gap-1.5 h-9"
+                          >
+                            <Camera className="h-3.5 w-3.5" />
+                            Take Photo
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Video Capture Dialog */}
+                      <Dialog open={cameraActive} onOpenChange={(open) => !open && stopCamera()}>
+                        <DialogContent className="sm:max-w-md">
+                          <DialogHeader>
+                            <DialogTitle>Take Photo</DialogTitle>
+                          </DialogHeader>
+                          <div className="aspect-video bg-black rounded-lg overflow-hidden relative border shadow-inner">
+                            <video
+                              id="logo-camera-video"
+                              autoPlay
+                              playsInline
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <DialogFooter className="flex-row justify-end gap-2 pt-2">
+                            <Button type="button" variant="ghost" onClick={stopCamera}>
+                              Cancel
+                            </Button>
+                            <Button type="button" onClick={capturePhoto} className="gap-1.5">
+                              <Camera className="h-4 w-4" /> Capture Logo
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+
+                      {/* Hidden text field for logo_url validation and binding */}
+                      <input type="hidden" {...form.register(f.key)} />
+                    </div>
+                  );
+                })()
               ) : (
                 <Input
                   type={f.type === "number" ? "number" : f.type === "email" ? "email" : "text"}

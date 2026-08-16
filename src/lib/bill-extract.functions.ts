@@ -4,7 +4,7 @@ import { z } from "zod";
 const InputSchema = z.object({
   file_base64: z.string().min(10),
   mime_type: z.string(),
-  bill_type: z.enum(["items", "services", "fixed_assets"]),
+  bill_type: z.enum(["items", "services", "fixed_assets", "other_items"]),
   bill_id: z.string().optional(),
 });
 

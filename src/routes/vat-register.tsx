@@ -17,17 +17,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { inr } from "@/lib/format";
 import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { BsDatePicker } from "@/components/ui/bs-date-picker";
+import { ArrowDownLeft, ArrowUpRight, Scale, Info } from "lucide-react";
 
 export const Route = createFileRoute("/vat-register")({
   component: VATRegisterPage,
 });
 
-interface BillRow {
+interface PurchaseBillRow {
   id: string;
   bill_number: string | null;
   invoice_date: string | null;
@@ -40,19 +41,18 @@ interface BillRow {
   status: string;
 }
 
-interface BillLineRow {
+interface SalesInvoiceRow {
   id: string;
-  bill_id: string;
-  name: string;
-  quantity: number;
-  per_unit: number;
-  vat_rate: number;
-  line_amount: number;
-  bills: {
-    bill_number: string | null;
-    invoice_date: string | null;
-    vendors: { name: string } | null;
-  } | null;
+  invoice_number: string;
+  invoice_date: string;
+  customer_id: string | null;
+  customers: { name: string; vat_number?: string | null } | null;
+  subtotal: number;
+  discount: number;
+  vat_amount: number;
+  total_amount: number;
+  invoice_type: "pan" | "vat";
+  status: string;
 }
 
 function DateFilterInput({
@@ -70,7 +70,7 @@ function DateFilterInput({
     return (
       <div className="space-y-1">
         <Label className="text-xs">{label} (BS)</Label>
-        <BsDatePicker value={value} onChange={onChange} />
+        <BsDatePicker value={value} onChange={onChange} className="w-44 h-9" />
       </div>
     );
   }
@@ -80,7 +80,7 @@ function DateFilterInput({
       <Label className="text-xs">{label} (AD)</Label>
       <Input
         type="date"
-        className="w-44"
+        className="w-44 h-9"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
@@ -89,16 +89,16 @@ function DateFilterInput({
 }
 
 function VATRegisterPage() {
-  const [tab, setTab] = useState("invoice");
-  // fromDate/toDate always store AD dates internally
+  const [tab, setTab] = useState("summary");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
   const dateFormat = useDateFormat();
   const isBS = dateFormat === "bs";
 
-  const { data: bills, isLoading: billsLoading } = useQuery({
-    queryKey: ["vat-register", "bills", fromDate, toDate],
+  // Query Purchase Bills (Input VAT)
+  const { data: purchases, isLoading: purchasesLoading } = useQuery({
+    queryKey: ["vat-register", "purchases", fromDate, toDate],
     queryFn: async () => {
       let query = supabase
         .from("bills")
@@ -114,103 +114,79 @@ function VATRegisterPage() {
 
       const { data, error } = await query.order("invoice_date", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as BillRow[];
+      return (data ?? []) as unknown as PurchaseBillRow[];
     },
   });
 
-  const { data: lines, isLoading: linesLoading } = useQuery({
-    queryKey: ["vat-register", "lines", fromDate, toDate],
+  // Query Sales Invoices (Output VAT)
+  const { data: sales, isLoading: salesLoading } = useQuery({
+    queryKey: ["vat-register", "sales", fromDate, toDate],
     queryFn: async () => {
       let query = supabase
-        .from("bill_lines")
-        .select("*, bills(bill_number, invoice_date, vendors(name))")
-        .gt("vat_rate", 0);
+        .from("sales_invoices" as any)
+        .select("*, customers(name, vat_number)")
+        .eq("status", "final"); // approved invoices have status = 'final'
 
       if (fromDate) {
-        query = query.gte("bills.invoice_date", fromDate);
+        query = query.gte("invoice_date", fromDate);
       }
       if (toDate) {
-        query = query.lte("bills.invoice_date", toDate);
+        query = query.lte("invoice_date", toDate);
       }
 
-      const { data, error } = await query.order("vat_rate", { ascending: false });
+      const { data, error } = await query.order("invoice_date", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as BillLineRow[];
+      return (data ?? []) as unknown as SalesInvoiceRow[];
     },
   });
 
-  const invoiceSummary = useMemo(() => {
-    if (!bills) return [];
-    return bills.map((b) => ({
-      id: b.id,
-      bill_number: b.bill_number || "—",
-      invoice_date: b.invoice_date || "—",
-      vendor: b.vendors?.name || "—",
-      taxable_amount: Number(b.taxable_amount) || 0,
-      vat_amount: Number(b.vat_amount) || 0,
-      final_amount: Number(b.final_amount) || 0,
-      tax_type: b.tax_type || "vat",
-    }));
-  }, [bills]);
-
-  const invoiceTotals = useMemo(() => {
-    return invoiceSummary.reduce(
-      (acc, r) => ({
-        taxable: acc.taxable + r.taxable_amount,
-        vat: acc.vat + r.vat_amount,
-        total: acc.total + r.final_amount,
+  // Input VAT calculations (from Purchases)
+  const purchaseTotals = useMemo(() => {
+    if (!purchases) return { taxable: 0, vat: 0, total: 0 };
+    return purchases.reduce(
+      (acc, b) => ({
+        taxable: acc.taxable + (Number(b.taxable_amount) || 0),
+        vat: acc.vat + (Number(b.vat_amount) || 0),
+        total: acc.total + (Number(b.final_amount) || 0),
       }),
-      { taxable: 0, vat: 0, total: 0 },
+      { taxable: 0, vat: 0, total: 0 }
     );
-  }, [invoiceSummary]);
+  }, [purchases]);
 
-  const itemSummary = useMemo(() => {
-    if (!lines) return [];
-    const grouped = new Map<string, { name: string; vat_rate: number; total_qty: number; total_amount: number; total_vat: number }>();
-
-    for (const l of lines) {
-      const key = `${l.name}_${l.vat_rate}`;
-      const existing = grouped.get(key);
-      const lineVat = (Number(l.line_amount) * Number(l.vat_rate)) / 100;
-      if (existing) {
-        existing.total_qty += Number(l.quantity);
-        existing.total_amount += Number(l.line_amount);
-        existing.total_vat += lineVat;
-      } else {
-        grouped.set(key, {
-          name: l.name,
-          vat_rate: Number(l.vat_rate),
-          total_qty: Number(l.quantity),
-          total_amount: Number(l.line_amount),
-          total_vat: lineVat,
-        });
-      }
-    }
-
-    return Array.from(grouped.values()).sort((a, b) => b.vat_rate - a.vat_rate);
-  }, [lines]);
-
-  const itemTotals = useMemo(() => {
-    return itemSummary.reduce(
-      (acc, r) => ({
-        amount: acc.amount + r.total_amount,
-        vat: acc.vat + r.total_vat,
+  // Output VAT calculations (from Sales)
+  const salesTotals = useMemo(() => {
+    if (!sales) return { taxable: 0, vat: 0, total: 0 };
+    return sales.reduce(
+      (acc, s) => ({
+        taxable: acc.taxable + (Number(s.subtotal || 0) - Number(s.discount || 0)),
+        vat: acc.vat + (Number(s.vat_amount) || 0),
+        total: acc.total + (Number(s.total_amount) || 0),
       }),
-      { amount: 0, vat: 0 },
+      { taxable: 0, vat: 0, total: 0 }
     );
-  }, [itemSummary]);
+  }, [sales]);
 
-  const isLoading = billsLoading || linesLoading;
+  // Net VAT Balance calculations
+  const netVat = useMemo(() => {
+    const diff = salesTotals.vat - purchaseTotals.vat;
+    return {
+      amount: Math.abs(diff),
+      isPayable: diff >= 0,
+    };
+  }, [salesTotals.vat, purchaseTotals.vat]);
+
+  const isLoading = purchasesLoading || salesLoading;
 
   return (
     <>
       <PageHeader
         title="VAT Register"
-        description="Tax summary for approved invoices — invoice-wise and item-wise breakdown."
+        description="Consolidated Tax Register showing Input VAT from purchases, Output VAT from approved sales, and the net tax balance."
       />
 
-      <div className="p-6 space-y-4">
-        <Card>
+      <div className="p-6 space-y-6">
+        {/* Date Filter Controls */}
+        <Card className="shadow-sm">
           <CardContent className="pt-6">
             <div className="flex flex-wrap items-end gap-4">
               <DateFilterInput
@@ -232,66 +208,193 @@ function VATRegisterPage() {
                   setFromDate("");
                   setToDate("");
                 }}
+                className="h-9"
               >
-                Clear
+                Clear Filters
               </Button>
               {(fromDate || toDate) && (
-                <Badge variant="secondary" className="ml-2">
-                  Filtered: {formatDate(fromDate, dateFormat)} — {formatDate(toDate, dateFormat)}
+                <Badge variant="secondary" className="mb-1 py-1 px-2.5">
+                  Range: {fromDate ? formatDate(fromDate, dateFormat) : "Start"} — {toDate ? formatDate(toDate, dateFormat) : "End"}
                 </Badge>
               )}
             </div>
           </CardContent>
         </Card>
 
+        {/* Dashboard KPI cards */}
+        {!isLoading && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Input VAT Card */}
+            <Card className="shadow-sm border-l-4 border-l-blue-500">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Input VAT (Purchases)</CardTitle>
+                <ArrowDownLeft className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold font-mono">{inr(purchaseTotals.vat)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  From {purchases?.length || 0} approved purchase bills
+                </p>
+                <div className="text-xs text-muted-foreground/80 mt-0.5">
+                  Taxable Purchase: <span className="font-mono">{inr(purchaseTotals.taxable)}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Output VAT Card */}
+            <Card className="shadow-sm border-l-4 border-l-amber-500">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Output VAT (Sales)</CardTitle>
+                <ArrowUpRight className="h-4 w-4 text-amber-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold font-mono">{inr(salesTotals.vat)}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  From {sales?.length || 0} approved sales invoices
+                </p>
+                <div className="text-xs text-muted-foreground/80 mt-0.5">
+                  Taxable Sales: <span className="font-mono">{inr(salesTotals.taxable)}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Net Balance Card */}
+            <Card className={`shadow-sm border-l-4 ${netVat.isPayable ? "border-l-red-500 bg-red-50/20" : "border-l-emerald-500 bg-emerald-50/20"}`}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Net VAT Balance</CardTitle>
+                <Scale className={`h-4 w-4 ${netVat.isPayable ? "text-red-500" : "text-emerald-500"}`} />
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold font-mono ${netVat.isPayable ? "text-red-600" : "text-emerald-600"}`}>
+                  {inr(netVat.amount)}
+                </div>
+                <Badge variant={netVat.isPayable ? "destructive" : "default"} className="mt-1">
+                  {netVat.isPayable ? "VAT Payable to Govt." : "VAT Credit/Receivable"}
+                </Badge>
+                <p className="text-[10px] text-muted-foreground mt-2">
+                  Formula: Output VAT - Input VAT
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {isLoading ? (
-          <p className="text-center text-muted-foreground py-8">Loading VAT data…</p>
+          <p className="text-center text-muted-foreground py-8">Loading VAT registers…</p>
         ) : (
-          <Tabs value={tab} onValueChange={setTab}>
+          <Tabs value={tab} onValueChange={setTab} className="space-y-4">
             <TabsList>
-              <TabsTrigger value="invoice">Invoice-wise</TabsTrigger>
-              <TabsTrigger value="item">Item-wise</TabsTrigger>
+              <TabsTrigger value="summary">Summary Sheet</TabsTrigger>
+              <TabsTrigger value="sales">Sales Register (Output)</TabsTrigger>
+              <TabsTrigger value="purchases">Purchase Register (Input)</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="invoice" className="space-y-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="rounded-md border">
+            {/* Tab 1: Summary Sheet */}
+            <TabsContent value="summary" className="space-y-4">
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-1.5">
+                    <Info className="h-4 w-4 text-primary" /> Tax Reconciliation Statement
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-md border overflow-hidden">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="bg-muted/50">
                         <TableRow>
-                          <TableHead>Bill #</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Vendor</TableHead>
-                          <TableHead className="text-right">Taxable</TableHead>
-                          <TableHead className="text-right">VAT</TableHead>
-                          <TableHead className="text-right">Total</TableHead>
+                          <TableHead className="w-1/2">Particulars</TableHead>
+                          <TableHead className="text-right">Taxable Amount</TableHead>
+                          <TableHead className="text-right">VAT Amount (13%)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {invoiceSummary.length === 0 ? (
+                        <TableRow>
+                          <TableCell className="font-medium">
+                            Sales (Output VAT from Approved Invoices)
+                          </TableCell>
+                          <TableCell className="text-right font-mono">{inr(salesTotals.taxable)}</TableCell>
+                          <TableCell className="text-right font-mono text-amber-600 font-semibold">{inr(salesTotals.vat)}</TableCell>
+                        </TableRow>
+                        <TableRow className="border-b-2">
+                          <TableCell className="font-medium">
+                            Purchases (Input VAT from Approved Bills)
+                          </TableCell>
+                          <TableCell className="text-right font-mono">{inr(purchaseTotals.taxable)}</TableCell>
+                          <TableCell className="text-right font-mono text-blue-600 font-semibold">{inr(purchaseTotals.vat)}</TableCell>
+                        </TableRow>
+                        <TableRow className="bg-muted/40 font-bold text-base">
+                          <TableCell>
+                            {netVat.isPayable ? "Net VAT Payable (Output > Input)" : "Net VAT Receivable / Credit (Input > Output)"}
+                          </TableCell>
+                          <TableCell className="text-right">—</TableCell>
+                          <TableCell className={`text-right font-mono ${netVat.isPayable ? "text-red-600" : "text-emerald-600"}`}>
+                            {inr(netVat.amount)}
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Tab 2: Sales Register */}
+            <TabsContent value="sales" className="space-y-4">
+              <Card className="shadow-sm">
+                <CardContent className="pt-6">
+                  <div className="rounded-md border overflow-hidden">
+                    <Table>
+                      <TableHeader className="bg-muted/50">
+                        <TableRow>
+                          <TableHead>Invoice #</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Billing Type</TableHead>
+                          <TableHead className="text-right">Taxable Sales</TableHead>
+                          <TableHead className="text-right">VAT Amount</TableHead>
+                          <TableHead className="text-right">Total Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sales?.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                              No approved bills found for the selected date range.
+                            <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                              No approved sales invoices found for this period.
                             </TableCell>
                           </TableRow>
                         ) : (
                           <>
-                            {invoiceSummary.map((r) => (
-                              <TableRow key={r.id}>
-                                <TableCell className="font-medium">{r.bill_number}</TableCell>
-                                <TableCell>{formatDate(r.invoice_date, dateFormat)}</TableCell>
-                                <TableCell>{r.vendor}</TableCell>
-                                <TableCell className="text-right tabular-nums">{inr(r.taxable_amount)}</TableCell>
-                                <TableCell className="text-right tabular-nums">{inr(r.vat_amount)}</TableCell>
-                                <TableCell className="text-right tabular-nums font-medium">{inr(r.final_amount)}</TableCell>
+                            {sales?.map((s) => (
+                              <TableRow key={s.id}>
+                                <TableCell className="font-medium font-mono text-primary">{s.invoice_number}</TableCell>
+                                <TableCell className="text-xs">{formatDate(s.invoice_date, dateFormat)}</TableCell>
+                                <TableCell>
+                                  <div className="font-normal text-sm">{s.customers?.name || "—"}</div>
+                                  {s.customers?.vat_number && (
+                                    <div className="text-[10px] text-muted-foreground">PAN/VAT: {s.customers.vat_number}</div>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={s.invoice_type === "vat" ? "default" : "secondary"} className="text-[10px] py-0 px-1.5 uppercase">
+                                    {s.invoice_type}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm">
+                                  {inr(Number(s.subtotal || 0) - Number(s.discount || 0))}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm text-amber-600">
+                                  {inr(s.vat_amount)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm font-semibold">
+                                  {inr(s.total_amount)}
+                                </TableCell>
                               </TableRow>
                             ))}
-                            <TableRow className="bg-muted/50 font-semibold">
-                              <TableCell colSpan={3}>Total</TableCell>
-                              <TableCell className="text-right tabular-nums">{inr(invoiceTotals.taxable)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{inr(invoiceTotals.vat)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{inr(invoiceTotals.total)}</TableCell>
+                            <TableRow className="bg-muted/50 font-semibold text-sm">
+                              <TableCell colSpan={4}>Total Sales Register</TableCell>
+                              <TableCell className="text-right font-mono">{inr(salesTotals.taxable)}</TableCell>
+                              <TableCell className="text-right font-mono text-amber-600">{inr(salesTotals.vat)}</TableCell>
+                              <TableCell className="text-right font-mono">{inr(salesTotals.total)}</TableCell>
                             </TableRow>
                           </>
                         )}
@@ -302,46 +405,58 @@ function VATRegisterPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="item" className="space-y-4">
-              <Card>
+            {/* Tab 3: Purchase Register */}
+            <TabsContent value="purchases" className="space-y-4">
+              <Card className="shadow-sm">
                 <CardContent className="pt-6">
-                  <div className="rounded-md border">
+                  <div className="rounded-md border overflow-hidden">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="bg-muted/50">
                         <TableRow>
-                          <TableHead>Item Name</TableHead>
-                          <TableHead className="text-right">VAT %</TableHead>
-                          <TableHead className="text-right">Total Qty</TableHead>
+                          <TableHead>Bill #</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Vendor</TableHead>
+                          <TableHead>Billing Type</TableHead>
+                          <TableHead className="text-right">Taxable Purchases</TableHead>
+                          <TableHead className="text-right">VAT Amount</TableHead>
                           <TableHead className="text-right">Total Amount</TableHead>
-                          <TableHead className="text-right">Total VAT</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {itemSummary.length === 0 ? (
+                        {purchases?.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                              No items with VAT found for the selected date range.
+                            <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                              No approved purchase bills found for this period.
                             </TableCell>
                           </TableRow>
                         ) : (
                           <>
-                            {itemSummary.map((r, i) => (
-                              <TableRow key={i}>
-                                <TableCell className="font-medium">{r.name}</TableCell>
-                                <TableCell className="text-right">
-                                  <Badge variant="outline">{r.vat_rate}%</Badge>
+                            {purchases?.map((b) => (
+                              <TableRow key={b.id}>
+                                <TableCell className="font-medium font-mono text-primary">{b.bill_number || "—"}</TableCell>
+                                <TableCell className="text-xs">{formatDate(b.invoice_date, dateFormat)}</TableCell>
+                                <TableCell className="text-sm">{b.vendors?.name || "—"}</TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className="text-[10px] py-0 px-1.5 uppercase">
+                                    {b.tax_type || "vat"}
+                                  </Badge>
                                 </TableCell>
-                                <TableCell className="text-right tabular-nums">{r.total_qty}</TableCell>
-                                <TableCell className="text-right tabular-nums">{inr(r.total_amount)}</TableCell>
-                                <TableCell className="text-right tabular-nums font-medium">{inr(r.total_vat)}</TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm">
+                                  {inr(b.taxable_amount)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm text-blue-600">
+                                  {inr(b.vat_amount)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm font-semibold">
+                                  {inr(b.final_amount)}
+                                </TableCell>
                               </TableRow>
                             ))}
-                            <TableRow className="bg-muted/50 font-semibold">
-                              <TableCell>Total</TableCell>
-                              <TableCell />
-                              <TableCell />
-                              <TableCell className="text-right tabular-nums">{inr(itemTotals.amount)}</TableCell>
-                              <TableCell className="text-right tabular-nums">{inr(itemTotals.vat)}</TableCell>
+                            <TableRow className="bg-muted/50 font-semibold text-sm">
+                              <TableCell colSpan={4}>Total Purchase Register</TableCell>
+                              <TableCell className="text-right font-mono">{inr(purchaseTotals.taxable)}</TableCell>
+                              <TableCell className="text-right font-mono text-blue-600">{inr(purchaseTotals.vat)}</TableCell>
+                              <TableCell className="text-right font-mono">{inr(purchaseTotals.total)}</TableCell>
                             </TableRow>
                           </>
                         )}

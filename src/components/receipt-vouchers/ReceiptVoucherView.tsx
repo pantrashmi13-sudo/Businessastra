@@ -19,7 +19,7 @@ import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { inr } from "@/lib/format";
 
-const PAYMENT_MODES: Record<string, string> = {
+const RECEIPT_MODES: Record<string, string> = {
   petty_cash: "Petty Cash",
   qr: "QR",
   cheque: "Cheque",
@@ -30,71 +30,70 @@ const PAYMENT_MODES: Record<string, string> = {
   other: "Other",
 };
 
-interface BillAllocation {
-  bill_id: string;
-  bill_number: string | null;
-  internal_bill_number: string | null;
+interface InvoiceAllocation {
+  invoice_id: string;
+  invoice_number: string;
   outstanding: number;
   amount_applied: number;
 }
 
-interface PaymentVoucherData {
+interface ReceiptVoucherData {
   id: string;
   voucher_number: string;
-  payee_type: string;
-  vendor_id: string | null;
-  payee_name: string | null;
-  payment_mode: string;
+  payer_type: string;
+  customer_id: string | null;
+  payer_name: string | null;
+  receipt_mode: string;
   reference_number: string | null;
-  payment_date: string;
+  receipt_date: string;
   total_amount: number;
   adjustment_type: string;
   remarks: string | null;
-  paid_from_type: string | null;
-  paid_from_id: string | null;
+  received_in_type: string | null;
+  received_in_id: string | null;
   status: string;
   created_at: string;
-  vendors?: { name: string } | null;
-  bill_allocations?: BillAllocation[];
+  customers?: { name: string } | null;
+  invoice_allocations?: InvoiceAllocation[];
 }
 
 interface Props {
-  voucher: PaymentVoucherData;
+  voucher: ReceiptVoucherData;
 }
 
-export function PaymentVoucherView({ voucher }: Props) {
+export function ReceiptVoucherView({ voucher }: Props) {
   const dateFormat = useDateFormat();
 
-  const payeeDisplay = useMemo(() => {
-    if (voucher.payee_type === "vendor") {
-      return (voucher.vendors as { name?: string })?.name ?? "—";
+  const payerDisplay = useMemo(() => {
+    if (voucher.payer_type === "customer") {
+      return (voucher.customers as { name?: string })?.name ?? "—";
     }
-    return voucher.payee_name || "—";
+    return voucher.payer_name || "—";
   }, [voucher]);
 
-  // Fetch paid from account name
-  const paidFromQuery = useQuery({
-    queryKey: ["paid-from", voucher.paid_from_type, voucher.paid_from_id],
+  // Fetch received in account name
+  const receivedInQuery = useQuery({
+    queryKey: ["received-in", voucher.received_in_type, voucher.received_in_id],
     queryFn: async () => {
-      if (!voucher.paid_from_type || !voucher.paid_from_id) return null;
-      if (voucher.paid_from_type === "petty_cash") {
+      if (!voucher.received_in_type || !voucher.received_in_id) return null;
+      if (voucher.received_in_type === "petty_cash") {
         const { data } = await supabase
           .from("petty_cash_accounts")
           .select("name")
-          .eq("id", voucher.paid_from_id)
+          .eq("id", voucher.received_in_id)
           .single();
         return data ? `Petty Cash - ${data.name}` : null;
-      } else if (voucher.paid_from_type === "bank") {
+      } else if (voucher.received_in_type === "bank") {
         const { data } = await supabase
           .from("bank_accounts")
           .select("bank_name, account_number")
-          .eq("id", voucher.paid_from_id)
+          .eq("id", voucher.received_in_id)
           .single();
         return data ? `Bank - ${data.bank_name} (${data.account_number})` : null;
       }
       return null;
     },
-    enabled: !!voucher.paid_from_type && !!voucher.paid_from_id,
+    enabled: !!voucher.received_in_type && !!voucher.received_in_id,
   });
 
   const handlePrint = () => {
@@ -103,7 +102,6 @@ export function PaymentVoucherView({ voucher }: Props) {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header with back button and print */}
       <div className="flex items-center justify-between no-print">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" asChild>
@@ -113,7 +111,7 @@ export function PaymentVoucherView({ voucher }: Props) {
             </Link>
           </Button>
           <div>
-            <h1 className="text-2xl font-bold">Payment Voucher</h1>
+            <h1 className="text-2xl font-bold">Receipt Voucher</h1>
             <p className="text-muted-foreground">{voucher.voucher_number}</p>
           </div>
         </div>
@@ -128,16 +126,13 @@ export function PaymentVoucherView({ voucher }: Props) {
         </div>
       </div>
 
-      {/* Voucher Content - printable */}
       <div className="print-area">
         <Card className="print:shadow-none print:border-black">
           <CardContent className="pt-6 space-y-6">
-            {/* Company header placeholder for print */}
             <div className="text-center border-b pb-4 print:block hidden">
-              <h2 className="text-xl font-bold">Payment Voucher</h2>
+              <h2 className="text-xl font-bold">Receipt Voucher</h2>
             </div>
 
-            {/* Voucher info grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">
@@ -150,15 +145,15 @@ export function PaymentVoucherView({ voucher }: Props) {
                   Date
                 </p>
                 <p className="font-semibold">
-                  {formatDate(voucher.payment_date, dateFormat)}
+                  {formatDate(voucher.receipt_date, dateFormat)}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Payment Mode
+                  Receipt Mode
                 </p>
                 <p className="font-semibold">
-                  {PAYMENT_MODES[voucher.payment_mode] || voucher.payment_mode}
+                  {RECEIPT_MODES[voucher.receipt_mode] || voucher.receipt_mode}
                 </p>
               </div>
               {voucher.reference_number && (
@@ -169,67 +164,64 @@ export function PaymentVoucherView({ voucher }: Props) {
                   <p className="font-semibold">{voucher.reference_number}</p>
                 </div>
               )}
-              {paidFromQuery.data && (
+              {receivedInQuery.data && (
                 <div>
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Paid From
+                    Received In
                   </p>
-                  <p className="font-semibold">{paidFromQuery.data}</p>
+                  <p className="font-semibold">{receivedInQuery.data}</p>
                 </div>
               )}
             </div>
 
-            {/* Payee info */}
             <div className="border-t pt-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Payee Type
+                    Payer Type
                   </p>
                   <p className="font-medium capitalize">
-                    {voucher.payee_type === "vendor" ? "Vendor" : "Other"}
+                    {voucher.payer_type === "customer" ? "Customer" : "Other"}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    {voucher.payee_type === "vendor" ? "Vendor Name" : "Payee Name"}
+                    {voucher.payer_type === "customer" ? "Customer Name" : "Payer Name"}
                   </p>
-                  <p className="font-medium">{payeeDisplay}</p>
+                  <p className="font-medium">{payerDisplay}</p>
                 </div>
               </div>
             </div>
 
-            {/* Amount */}
             <div className="border-t pt-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">Total Amount Paid</p>
+                <p className="text-sm text-muted-foreground">Total Amount Received</p>
                 <p className="text-3xl font-bold text-primary">
                   {inr(voucher.total_amount)}
                 </p>
               </div>
             </div>
 
-            {/* Bill-wise allocations */}
-            {voucher.adjustment_type === "bill_wise" &&
-              voucher.bill_allocations &&
-              voucher.bill_allocations.length > 0 && (
+            {voucher.adjustment_type === "invoice_wise" &&
+              voucher.invoice_allocations &&
+              voucher.invoice_allocations.length > 0 && (
                 <div className="border-t pt-4">
                   <p className="text-sm font-medium mb-3">
-                    Bill-wise Payment Details
+                    Invoice-wise Receipt Details
                   </p>
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Bill Number</TableHead>
+                        <TableHead>Invoice Number</TableHead>
                         <TableHead className="text-right">Outstanding</TableHead>
                         <TableHead className="text-right">Amount Applied</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {voucher.bill_allocations.map((alloc) => (
-                        <TableRow key={alloc.bill_id}>
-                          <TableCell className="font-medium">
-                            {alloc.bill_number || alloc.internal_bill_number || "—"}
+                      {voucher.invoice_allocations.map((alloc) => (
+                        <TableRow key={alloc.invoice_id}>
+                          <TableCell className="font-medium font-mono">
+                            {alloc.invoice_number}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {inr(alloc.outstanding)}
@@ -244,7 +236,6 @@ export function PaymentVoucherView({ voucher }: Props) {
                 </div>
               )}
 
-            {/* Remarks */}
             {voucher.remarks && (
               <div className="border-t pt-4">
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
@@ -254,7 +245,6 @@ export function PaymentVoucherView({ voucher }: Props) {
               </div>
             )}
 
-            {/* Signature lines for print */}
             <div className="hidden print:block border-t pt-8 mt-8">
               <div className="flex justify-between px-8">
                 <div className="text-center">
@@ -275,10 +265,9 @@ export function PaymentVoucherView({ voucher }: Props) {
         </Card>
       </div>
 
-      {/* No-edit notice */}
       <div className="no-print">
         <div className="rounded-md bg-muted p-4 text-sm text-muted-foreground text-center">
-          This payment voucher is final and cannot be edited or deleted.
+          This receipt voucher is final and cannot be edited or deleted.
         </div>
       </div>
     </div>

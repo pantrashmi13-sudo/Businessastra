@@ -332,12 +332,17 @@ export type Database = {
         Row: {
           alt_uom: string | null
           alt_uom_conversion: number | null
+          category: string | null
+          parent_category: string | null
+          sub_parent_category: string | null
+          sub_category: string | null
           created_at: string
           default_rate: number
           description: string | null
           hsn_code: string | null
           id: string
           is_service: boolean
+          is_inventory: boolean
           item_code: string
           item_name: string
           qty: number
@@ -351,16 +356,25 @@ export type Database = {
           opening_qty: number
           opening_rate: number
           opening_value: number
+          sales_ledger: string | null
+          purchase_ledger: string | null
+          tds_applicable: boolean | null
+          tds_rate: number | null
         }
         Insert: {
           alt_uom?: string | null
           alt_uom_conversion?: number | null
+          category?: string | null
+          parent_category?: string | null
+          sub_parent_category?: string | null
+          sub_category?: string | null
           created_at?: string
           default_rate?: number
           description?: string | null
           hsn_code?: string | null
           id?: string
           is_service?: boolean
+          is_inventory?: boolean
           item_code: string
           item_name: string
           qty?: number
@@ -371,16 +385,28 @@ export type Database = {
           vat_rate?: number
           warehouse?: string | null
           status?: string
+          opening_qty?: number
+          opening_rate?: number
+          opening_value?: number
+          sales_ledger?: string | null
+          purchase_ledger?: string | null
+          tds_applicable?: boolean | null
+          tds_rate?: number | null
         }
         Update: {
           alt_uom?: string | null
           alt_uom_conversion?: number | null
+          category?: string | null
+          parent_category?: string | null
+          sub_parent_category?: string | null
+          sub_category?: string | null
           created_at?: string
           default_rate?: number
           description?: string | null
           hsn_code?: string | null
           id?: string
           is_service?: boolean
+          is_inventory?: boolean
           item_code?: string
           item_name?: string
           qty?: number
@@ -391,6 +417,13 @@ export type Database = {
           vat_rate?: number
           warehouse?: string | null
           status?: string
+          opening_qty?: number
+          opening_rate?: number
+          opening_value?: number
+          sales_ledger?: string | null
+          purchase_ledger?: string | null
+          tds_applicable?: boolean | null
+          tds_rate?: number | null
         }
         Relationships: []
       }
@@ -604,6 +637,96 @@ export type Database = {
           },
         ]
       }
+      consumptions: {
+        Row: {
+          id: string
+          consumption_number: string
+          consumption_date: string | null
+          notes: string | null
+          company_id: string | null
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          consumption_number: string
+          consumption_date?: string | null
+          notes?: string | null
+          company_id?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          consumption_number?: string
+          consumption_date?: string | null
+          notes?: string | null
+          company_id?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      consumption_lines: {
+        Row: {
+          id: string
+          consumption_id: string
+          sno: number
+          ref_id: string | null
+          code: string | null
+          name: string
+          uom: string
+          quantity: number
+          per_unit: number
+          line_amount: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          consumption_id: string
+          sno: number
+          ref_id?: string | null
+          code?: string | null
+          name: string
+          uom?: string
+          quantity?: number
+          per_unit?: number
+          line_amount?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          consumption_id?: string
+          sno?: number
+          ref_id?: string | null
+          code?: string | null
+          name?: string
+          uom?: string
+          quantity?: number
+          per_unit?: number
+          line_amount?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consumption_lines_consumption_id_fkey"
+            columns: ["consumption_id"]
+            isOneToOne: false
+            referencedRelation: "consumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consumption_lines_ref_id_fkey"
+            columns: ["ref_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -613,7 +736,7 @@ export type Database = {
     }
     Enums: {
       bill_status: "draft" | "approved"
-      bill_type: "items" | "services" | "fixed_assets"
+      bill_type: "items" | "services" | "fixed_assets" | "other_items"
       line_ref_type: "item" | "service" | "asset"
       payee_type: "vendor" | "other"
       payment_adjustment_type: "bill_wise" | "simple"
@@ -746,7 +869,7 @@ export const Constants = {
   public: {
     Enums: {
       bill_status: ["draft", "approved"],
-      bill_type: ["items", "services", "fixed_assets"],
+      bill_type: ["items", "services", "fixed_assets", "other_items"],
       line_ref_type: ["item", "service", "asset"],
     },
   },

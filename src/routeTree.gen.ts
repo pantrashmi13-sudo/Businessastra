@@ -14,21 +14,39 @@ import { Route as ReceiptPaymentRouteImport } from './routes/receipt-payment'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LedgersRouteImport } from './routes/ledgers'
+import { Route as CashBankRouteImport } from './routes/cash-bank'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SalesInvoicesIndexRouteImport } from './routes/sales-invoices.index'
 import { Route as ReceiptPaymentIndexRouteImport } from './routes/receipt-payment.index'
+import { Route as ConsumptionsIndexRouteImport } from './routes/consumptions.index'
 import { Route as ChallansIndexRouteImport } from './routes/challans.index'
+import { Route as CashBankIndexRouteImport } from './routes/cash-bank.index'
 import { Route as BillsIndexRouteImport } from './routes/bills.index'
 import { Route as MastersVendorsRouteImport } from './routes/masters.vendors'
 import { Route as MastersItemsRouteImport } from './routes/masters.items'
 import { Route as MastersFixedAssetsRouteImport } from './routes/masters.fixed-assets'
 import { Route as MastersCustomersRouteImport } from './routes/masters.customers'
 import { Route as MastersCompaniesRouteImport } from './routes/masters.companies'
+import { Route as ConsumptionsNewRouteImport } from './routes/consumptions.new'
+import { Route as ConsumptionsIdRouteImport } from './routes/consumptions.$id'
 import { Route as ChallansNewRouteImport } from './routes/challans.new'
 import { Route as ChallansIdRouteImport } from './routes/challans.$id'
 import { Route as BillsNewRouteImport } from './routes/bills.new'
 import { Route as BillsIdRouteImport } from './routes/bills.$id'
+import { Route as ReceiptPaymentReceiptVoucherNewRouteImport } from './routes/receipt-payment.receipt-voucher.new'
+import { Route as ReceiptPaymentReceiptVoucherIdRouteImport } from './routes/receipt-payment.receipt-voucher.$id'
 import { Route as ReceiptPaymentPaymentVoucherNewRouteImport } from './routes/receipt-payment.payment-voucher.new'
 import { Route as ReceiptPaymentPaymentVoucherIdRouteImport } from './routes/receipt-payment.payment-voucher.$id'
+import { Route as CashBankTransferNewRouteImport } from './routes/cash-bank.transfer.new'
+import { Route as CashBankPettyCashNewRouteImport } from './routes/cash-bank.petty-cash.new'
+import { Route as CashBankPettyCashIdRouteImport } from './routes/cash-bank.petty-cash.$id'
+import { Route as CashBankLoanNewRouteImport } from './routes/cash-bank.loan.new'
+import { Route as CashBankLoanIdRouteImport } from './routes/cash-bank.loan.$id'
+import { Route as CashBankBankNewRouteImport } from './routes/cash-bank.bank.new'
+import { Route as CashBankBankIdRouteImport } from './routes/cash-bank.bank.$id'
+import { Route as CashBankPettyCashIdEditRouteImport } from './routes/cash-bank.petty-cash.$id.edit'
+import { Route as CashBankLoanIdEditRouteImport } from './routes/cash-bank.loan.$id.edit'
+import { Route as CashBankBankIdEditRouteImport } from './routes/cash-bank.bank.$id.edit'
 
 const VatRegisterRoute = VatRegisterRouteImport.update({
   id: '/vat-register',
@@ -55,9 +73,19 @@ const LedgersRoute = LedgersRouteImport.update({
   path: '/ledgers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CashBankRoute = CashBankRouteImport.update({
+  id: '/cash-bank',
+  path: '/cash-bank',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SalesInvoicesIndexRoute = SalesInvoicesIndexRouteImport.update({
+  id: '/sales-invoices/',
+  path: '/sales-invoices/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReceiptPaymentIndexRoute = ReceiptPaymentIndexRouteImport.update({
@@ -65,10 +93,20 @@ const ReceiptPaymentIndexRoute = ReceiptPaymentIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ReceiptPaymentRoute,
 } as any)
+const ConsumptionsIndexRoute = ConsumptionsIndexRouteImport.update({
+  id: '/consumptions/',
+  path: '/consumptions/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChallansIndexRoute = ChallansIndexRouteImport.update({
   id: '/challans/',
   path: '/challans/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const CashBankIndexRoute = CashBankIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CashBankRoute,
 } as any)
 const BillsIndexRoute = BillsIndexRouteImport.update({
   id: '/bills/',
@@ -100,6 +138,16 @@ const MastersCompaniesRoute = MastersCompaniesRouteImport.update({
   path: '/masters/companies',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConsumptionsNewRoute = ConsumptionsNewRouteImport.update({
+  id: '/consumptions/new',
+  path: '/consumptions/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConsumptionsIdRoute = ConsumptionsIdRouteImport.update({
+  id: '/consumptions/$id',
+  path: '/consumptions/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChallansNewRoute = ChallansNewRouteImport.update({
   id: '/challans/new',
   path: '/challans/new',
@@ -120,6 +168,18 @@ const BillsIdRoute = BillsIdRouteImport.update({
   path: '/bills/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReceiptPaymentReceiptVoucherNewRoute =
+  ReceiptPaymentReceiptVoucherNewRouteImport.update({
+    id: '/receipt-voucher/new',
+    path: '/receipt-voucher/new',
+    getParentRoute: () => ReceiptPaymentRoute,
+  } as any)
+const ReceiptPaymentReceiptVoucherIdRoute =
+  ReceiptPaymentReceiptVoucherIdRouteImport.update({
+    id: '/receipt-voucher/$id',
+    path: '/receipt-voucher/$id',
+    getParentRoute: () => ReceiptPaymentRoute,
+  } as any)
 const ReceiptPaymentPaymentVoucherNewRoute =
   ReceiptPaymentPaymentVoucherNewRouteImport.update({
     id: '/payment-voucher/new',
@@ -132,9 +192,60 @@ const ReceiptPaymentPaymentVoucherIdRoute =
     path: '/payment-voucher/$id',
     getParentRoute: () => ReceiptPaymentRoute,
   } as any)
+const CashBankTransferNewRoute = CashBankTransferNewRouteImport.update({
+  id: '/transfer/new',
+  path: '/transfer/new',
+  getParentRoute: () => CashBankRoute,
+} as any)
+const CashBankPettyCashNewRoute = CashBankPettyCashNewRouteImport.update({
+  id: '/petty-cash/new',
+  path: '/petty-cash/new',
+  getParentRoute: () => CashBankRoute,
+} as any)
+const CashBankPettyCashIdRoute = CashBankPettyCashIdRouteImport.update({
+  id: '/petty-cash/$id',
+  path: '/petty-cash/$id',
+  getParentRoute: () => CashBankRoute,
+} as any)
+const CashBankLoanNewRoute = CashBankLoanNewRouteImport.update({
+  id: '/loan/new',
+  path: '/loan/new',
+  getParentRoute: () => CashBankRoute,
+} as any)
+const CashBankLoanIdRoute = CashBankLoanIdRouteImport.update({
+  id: '/loan/$id',
+  path: '/loan/$id',
+  getParentRoute: () => CashBankRoute,
+} as any)
+const CashBankBankNewRoute = CashBankBankNewRouteImport.update({
+  id: '/bank/new',
+  path: '/bank/new',
+  getParentRoute: () => CashBankRoute,
+} as any)
+const CashBankBankIdRoute = CashBankBankIdRouteImport.update({
+  id: '/bank/$id',
+  path: '/bank/$id',
+  getParentRoute: () => CashBankRoute,
+} as any)
+const CashBankPettyCashIdEditRoute = CashBankPettyCashIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => CashBankPettyCashIdRoute,
+} as any)
+const CashBankLoanIdEditRoute = CashBankLoanIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => CashBankLoanIdRoute,
+} as any)
+const CashBankBankIdEditRoute = CashBankBankIdEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => CashBankBankIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/cash-bank': typeof CashBankRouteWithChildren
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
@@ -144,16 +255,33 @@ export interface FileRoutesByFullPath {
   '/bills/new': typeof BillsNewRoute
   '/challans/$id': typeof ChallansIdRoute
   '/challans/new': typeof ChallansNewRoute
+  '/consumptions/$id': typeof ConsumptionsIdRoute
+  '/consumptions/new': typeof ConsumptionsNewRoute
   '/masters/companies': typeof MastersCompaniesRoute
   '/masters/customers': typeof MastersCustomersRoute
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills/': typeof BillsIndexRoute
+  '/cash-bank/': typeof CashBankIndexRoute
   '/challans/': typeof ChallansIndexRoute
+  '/consumptions/': typeof ConsumptionsIndexRoute
   '/receipt-payment/': typeof ReceiptPaymentIndexRoute
+  '/sales-invoices/': typeof SalesInvoicesIndexRoute
+  '/cash-bank/bank/$id': typeof CashBankBankIdRouteWithChildren
+  '/cash-bank/bank/new': typeof CashBankBankNewRoute
+  '/cash-bank/loan/$id': typeof CashBankLoanIdRouteWithChildren
+  '/cash-bank/loan/new': typeof CashBankLoanNewRoute
+  '/cash-bank/petty-cash/$id': typeof CashBankPettyCashIdRouteWithChildren
+  '/cash-bank/petty-cash/new': typeof CashBankPettyCashNewRoute
+  '/cash-bank/transfer/new': typeof CashBankTransferNewRoute
   '/receipt-payment/payment-voucher/$id': typeof ReceiptPaymentPaymentVoucherIdRoute
   '/receipt-payment/payment-voucher/new': typeof ReceiptPaymentPaymentVoucherNewRoute
+  '/receipt-payment/receipt-voucher/$id': typeof ReceiptPaymentReceiptVoucherIdRoute
+  '/receipt-payment/receipt-voucher/new': typeof ReceiptPaymentReceiptVoucherNewRoute
+  '/cash-bank/bank/$id/edit': typeof CashBankBankIdEditRoute
+  '/cash-bank/loan/$id/edit': typeof CashBankLoanIdEditRoute
+  '/cash-bank/petty-cash/$id/edit': typeof CashBankPettyCashIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -165,20 +293,38 @@ export interface FileRoutesByTo {
   '/bills/new': typeof BillsNewRoute
   '/challans/$id': typeof ChallansIdRoute
   '/challans/new': typeof ChallansNewRoute
+  '/consumptions/$id': typeof ConsumptionsIdRoute
+  '/consumptions/new': typeof ConsumptionsNewRoute
   '/masters/companies': typeof MastersCompaniesRoute
   '/masters/customers': typeof MastersCustomersRoute
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills': typeof BillsIndexRoute
+  '/cash-bank': typeof CashBankIndexRoute
   '/challans': typeof ChallansIndexRoute
+  '/consumptions': typeof ConsumptionsIndexRoute
   '/receipt-payment': typeof ReceiptPaymentIndexRoute
+  '/sales-invoices': typeof SalesInvoicesIndexRoute
+  '/cash-bank/bank/$id': typeof CashBankBankIdRouteWithChildren
+  '/cash-bank/bank/new': typeof CashBankBankNewRoute
+  '/cash-bank/loan/$id': typeof CashBankLoanIdRouteWithChildren
+  '/cash-bank/loan/new': typeof CashBankLoanNewRoute
+  '/cash-bank/petty-cash/$id': typeof CashBankPettyCashIdRouteWithChildren
+  '/cash-bank/petty-cash/new': typeof CashBankPettyCashNewRoute
+  '/cash-bank/transfer/new': typeof CashBankTransferNewRoute
   '/receipt-payment/payment-voucher/$id': typeof ReceiptPaymentPaymentVoucherIdRoute
   '/receipt-payment/payment-voucher/new': typeof ReceiptPaymentPaymentVoucherNewRoute
+  '/receipt-payment/receipt-voucher/$id': typeof ReceiptPaymentReceiptVoucherIdRoute
+  '/receipt-payment/receipt-voucher/new': typeof ReceiptPaymentReceiptVoucherNewRoute
+  '/cash-bank/bank/$id/edit': typeof CashBankBankIdEditRoute
+  '/cash-bank/loan/$id/edit': typeof CashBankLoanIdEditRoute
+  '/cash-bank/petty-cash/$id/edit': typeof CashBankPettyCashIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/cash-bank': typeof CashBankRouteWithChildren
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
@@ -188,21 +334,39 @@ export interface FileRoutesById {
   '/bills/new': typeof BillsNewRoute
   '/challans/$id': typeof ChallansIdRoute
   '/challans/new': typeof ChallansNewRoute
+  '/consumptions/$id': typeof ConsumptionsIdRoute
+  '/consumptions/new': typeof ConsumptionsNewRoute
   '/masters/companies': typeof MastersCompaniesRoute
   '/masters/customers': typeof MastersCustomersRoute
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
   '/bills/': typeof BillsIndexRoute
+  '/cash-bank/': typeof CashBankIndexRoute
   '/challans/': typeof ChallansIndexRoute
+  '/consumptions/': typeof ConsumptionsIndexRoute
   '/receipt-payment/': typeof ReceiptPaymentIndexRoute
+  '/sales-invoices/': typeof SalesInvoicesIndexRoute
+  '/cash-bank/bank/$id': typeof CashBankBankIdRouteWithChildren
+  '/cash-bank/bank/new': typeof CashBankBankNewRoute
+  '/cash-bank/loan/$id': typeof CashBankLoanIdRouteWithChildren
+  '/cash-bank/loan/new': typeof CashBankLoanNewRoute
+  '/cash-bank/petty-cash/$id': typeof CashBankPettyCashIdRouteWithChildren
+  '/cash-bank/petty-cash/new': typeof CashBankPettyCashNewRoute
+  '/cash-bank/transfer/new': typeof CashBankTransferNewRoute
   '/receipt-payment/payment-voucher/$id': typeof ReceiptPaymentPaymentVoucherIdRoute
   '/receipt-payment/payment-voucher/new': typeof ReceiptPaymentPaymentVoucherNewRoute
+  '/receipt-payment/receipt-voucher/$id': typeof ReceiptPaymentReceiptVoucherIdRoute
+  '/receipt-payment/receipt-voucher/new': typeof ReceiptPaymentReceiptVoucherNewRoute
+  '/cash-bank/bank/$id/edit': typeof CashBankBankIdEditRoute
+  '/cash-bank/loan/$id/edit': typeof CashBankLoanIdEditRoute
+  '/cash-bank/petty-cash/$id/edit': typeof CashBankPettyCashIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/cash-bank'
     | '/ledgers'
     | '/login'
     | '/onboarding'
@@ -212,16 +376,33 @@ export interface FileRouteTypes {
     | '/bills/new'
     | '/challans/$id'
     | '/challans/new'
+    | '/consumptions/$id'
+    | '/consumptions/new'
     | '/masters/companies'
     | '/masters/customers'
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
     | '/bills/'
+    | '/cash-bank/'
     | '/challans/'
+    | '/consumptions/'
     | '/receipt-payment/'
+    | '/sales-invoices/'
+    | '/cash-bank/bank/$id'
+    | '/cash-bank/bank/new'
+    | '/cash-bank/loan/$id'
+    | '/cash-bank/loan/new'
+    | '/cash-bank/petty-cash/$id'
+    | '/cash-bank/petty-cash/new'
+    | '/cash-bank/transfer/new'
     | '/receipt-payment/payment-voucher/$id'
     | '/receipt-payment/payment-voucher/new'
+    | '/receipt-payment/receipt-voucher/$id'
+    | '/receipt-payment/receipt-voucher/new'
+    | '/cash-bank/bank/$id/edit'
+    | '/cash-bank/loan/$id/edit'
+    | '/cash-bank/petty-cash/$id/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -233,19 +414,37 @@ export interface FileRouteTypes {
     | '/bills/new'
     | '/challans/$id'
     | '/challans/new'
+    | '/consumptions/$id'
+    | '/consumptions/new'
     | '/masters/companies'
     | '/masters/customers'
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
     | '/bills'
+    | '/cash-bank'
     | '/challans'
+    | '/consumptions'
     | '/receipt-payment'
+    | '/sales-invoices'
+    | '/cash-bank/bank/$id'
+    | '/cash-bank/bank/new'
+    | '/cash-bank/loan/$id'
+    | '/cash-bank/loan/new'
+    | '/cash-bank/petty-cash/$id'
+    | '/cash-bank/petty-cash/new'
+    | '/cash-bank/transfer/new'
     | '/receipt-payment/payment-voucher/$id'
     | '/receipt-payment/payment-voucher/new'
+    | '/receipt-payment/receipt-voucher/$id'
+    | '/receipt-payment/receipt-voucher/new'
+    | '/cash-bank/bank/$id/edit'
+    | '/cash-bank/loan/$id/edit'
+    | '/cash-bank/petty-cash/$id/edit'
   id:
     | '__root__'
     | '/'
+    | '/cash-bank'
     | '/ledgers'
     | '/login'
     | '/onboarding'
@@ -255,20 +454,38 @@ export interface FileRouteTypes {
     | '/bills/new'
     | '/challans/$id'
     | '/challans/new'
+    | '/consumptions/$id'
+    | '/consumptions/new'
     | '/masters/companies'
     | '/masters/customers'
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
     | '/bills/'
+    | '/cash-bank/'
     | '/challans/'
+    | '/consumptions/'
     | '/receipt-payment/'
+    | '/sales-invoices/'
+    | '/cash-bank/bank/$id'
+    | '/cash-bank/bank/new'
+    | '/cash-bank/loan/$id'
+    | '/cash-bank/loan/new'
+    | '/cash-bank/petty-cash/$id'
+    | '/cash-bank/petty-cash/new'
+    | '/cash-bank/transfer/new'
     | '/receipt-payment/payment-voucher/$id'
     | '/receipt-payment/payment-voucher/new'
+    | '/receipt-payment/receipt-voucher/$id'
+    | '/receipt-payment/receipt-voucher/new'
+    | '/cash-bank/bank/$id/edit'
+    | '/cash-bank/loan/$id/edit'
+    | '/cash-bank/petty-cash/$id/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CashBankRoute: typeof CashBankRouteWithChildren
   LedgersRoute: typeof LedgersRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
@@ -278,6 +495,8 @@ export interface RootRouteChildren {
   BillsNewRoute: typeof BillsNewRoute
   ChallansIdRoute: typeof ChallansIdRoute
   ChallansNewRoute: typeof ChallansNewRoute
+  ConsumptionsIdRoute: typeof ConsumptionsIdRoute
+  ConsumptionsNewRoute: typeof ConsumptionsNewRoute
   MastersCompaniesRoute: typeof MastersCompaniesRoute
   MastersCustomersRoute: typeof MastersCustomersRoute
   MastersFixedAssetsRoute: typeof MastersFixedAssetsRoute
@@ -285,6 +504,8 @@ export interface RootRouteChildren {
   MastersVendorsRoute: typeof MastersVendorsRoute
   BillsIndexRoute: typeof BillsIndexRoute
   ChallansIndexRoute: typeof ChallansIndexRoute
+  ConsumptionsIndexRoute: typeof ConsumptionsIndexRoute
+  SalesInvoicesIndexRoute: typeof SalesInvoicesIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -324,11 +545,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LedgersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cash-bank': {
+      id: '/cash-bank'
+      path: '/cash-bank'
+      fullPath: '/cash-bank'
+      preLoaderRoute: typeof CashBankRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sales-invoices/': {
+      id: '/sales-invoices/'
+      path: '/sales-invoices'
+      fullPath: '/sales-invoices/'
+      preLoaderRoute: typeof SalesInvoicesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/receipt-payment/': {
@@ -338,12 +573,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReceiptPaymentIndexRouteImport
       parentRoute: typeof ReceiptPaymentRoute
     }
+    '/consumptions/': {
+      id: '/consumptions/'
+      path: '/consumptions'
+      fullPath: '/consumptions/'
+      preLoaderRoute: typeof ConsumptionsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/challans/': {
       id: '/challans/'
       path: '/challans'
       fullPath: '/challans/'
       preLoaderRoute: typeof ChallansIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/cash-bank/': {
+      id: '/cash-bank/'
+      path: '/'
+      fullPath: '/cash-bank/'
+      preLoaderRoute: typeof CashBankIndexRouteImport
+      parentRoute: typeof CashBankRoute
     }
     '/bills/': {
       id: '/bills/'
@@ -387,6 +636,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MastersCompaniesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/consumptions/new': {
+      id: '/consumptions/new'
+      path: '/consumptions/new'
+      fullPath: '/consumptions/new'
+      preLoaderRoute: typeof ConsumptionsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/consumptions/$id': {
+      id: '/consumptions/$id'
+      path: '/consumptions/$id'
+      fullPath: '/consumptions/$id'
+      preLoaderRoute: typeof ConsumptionsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/challans/new': {
       id: '/challans/new'
       path: '/challans/new'
@@ -415,6 +678,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BillsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/receipt-payment/receipt-voucher/new': {
+      id: '/receipt-payment/receipt-voucher/new'
+      path: '/receipt-voucher/new'
+      fullPath: '/receipt-payment/receipt-voucher/new'
+      preLoaderRoute: typeof ReceiptPaymentReceiptVoucherNewRouteImport
+      parentRoute: typeof ReceiptPaymentRoute
+    }
+    '/receipt-payment/receipt-voucher/$id': {
+      id: '/receipt-payment/receipt-voucher/$id'
+      path: '/receipt-voucher/$id'
+      fullPath: '/receipt-payment/receipt-voucher/$id'
+      preLoaderRoute: typeof ReceiptPaymentReceiptVoucherIdRouteImport
+      parentRoute: typeof ReceiptPaymentRoute
+    }
     '/receipt-payment/payment-voucher/new': {
       id: '/receipt-payment/payment-voucher/new'
       path: '/payment-voucher/new'
@@ -429,19 +706,154 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReceiptPaymentPaymentVoucherIdRouteImport
       parentRoute: typeof ReceiptPaymentRoute
     }
+    '/cash-bank/transfer/new': {
+      id: '/cash-bank/transfer/new'
+      path: '/transfer/new'
+      fullPath: '/cash-bank/transfer/new'
+      preLoaderRoute: typeof CashBankTransferNewRouteImport
+      parentRoute: typeof CashBankRoute
+    }
+    '/cash-bank/petty-cash/new': {
+      id: '/cash-bank/petty-cash/new'
+      path: '/petty-cash/new'
+      fullPath: '/cash-bank/petty-cash/new'
+      preLoaderRoute: typeof CashBankPettyCashNewRouteImport
+      parentRoute: typeof CashBankRoute
+    }
+    '/cash-bank/petty-cash/$id': {
+      id: '/cash-bank/petty-cash/$id'
+      path: '/petty-cash/$id'
+      fullPath: '/cash-bank/petty-cash/$id'
+      preLoaderRoute: typeof CashBankPettyCashIdRouteImport
+      parentRoute: typeof CashBankRoute
+    }
+    '/cash-bank/loan/new': {
+      id: '/cash-bank/loan/new'
+      path: '/loan/new'
+      fullPath: '/cash-bank/loan/new'
+      preLoaderRoute: typeof CashBankLoanNewRouteImport
+      parentRoute: typeof CashBankRoute
+    }
+    '/cash-bank/loan/$id': {
+      id: '/cash-bank/loan/$id'
+      path: '/loan/$id'
+      fullPath: '/cash-bank/loan/$id'
+      preLoaderRoute: typeof CashBankLoanIdRouteImport
+      parentRoute: typeof CashBankRoute
+    }
+    '/cash-bank/bank/new': {
+      id: '/cash-bank/bank/new'
+      path: '/bank/new'
+      fullPath: '/cash-bank/bank/new'
+      preLoaderRoute: typeof CashBankBankNewRouteImport
+      parentRoute: typeof CashBankRoute
+    }
+    '/cash-bank/bank/$id': {
+      id: '/cash-bank/bank/$id'
+      path: '/bank/$id'
+      fullPath: '/cash-bank/bank/$id'
+      preLoaderRoute: typeof CashBankBankIdRouteImport
+      parentRoute: typeof CashBankRoute
+    }
+    '/cash-bank/petty-cash/$id/edit': {
+      id: '/cash-bank/petty-cash/$id/edit'
+      path: '/edit'
+      fullPath: '/cash-bank/petty-cash/$id/edit'
+      preLoaderRoute: typeof CashBankPettyCashIdEditRouteImport
+      parentRoute: typeof CashBankPettyCashIdRoute
+    }
+    '/cash-bank/loan/$id/edit': {
+      id: '/cash-bank/loan/$id/edit'
+      path: '/edit'
+      fullPath: '/cash-bank/loan/$id/edit'
+      preLoaderRoute: typeof CashBankLoanIdEditRouteImport
+      parentRoute: typeof CashBankLoanIdRoute
+    }
+    '/cash-bank/bank/$id/edit': {
+      id: '/cash-bank/bank/$id/edit'
+      path: '/edit'
+      fullPath: '/cash-bank/bank/$id/edit'
+      preLoaderRoute: typeof CashBankBankIdEditRouteImport
+      parentRoute: typeof CashBankBankIdRoute
+    }
   }
 }
+
+interface CashBankBankIdRouteChildren {
+  CashBankBankIdEditRoute: typeof CashBankBankIdEditRoute
+}
+
+const CashBankBankIdRouteChildren: CashBankBankIdRouteChildren = {
+  CashBankBankIdEditRoute: CashBankBankIdEditRoute,
+}
+
+const CashBankBankIdRouteWithChildren = CashBankBankIdRoute._addFileChildren(
+  CashBankBankIdRouteChildren,
+)
+
+interface CashBankLoanIdRouteChildren {
+  CashBankLoanIdEditRoute: typeof CashBankLoanIdEditRoute
+}
+
+const CashBankLoanIdRouteChildren: CashBankLoanIdRouteChildren = {
+  CashBankLoanIdEditRoute: CashBankLoanIdEditRoute,
+}
+
+const CashBankLoanIdRouteWithChildren = CashBankLoanIdRoute._addFileChildren(
+  CashBankLoanIdRouteChildren,
+)
+
+interface CashBankPettyCashIdRouteChildren {
+  CashBankPettyCashIdEditRoute: typeof CashBankPettyCashIdEditRoute
+}
+
+const CashBankPettyCashIdRouteChildren: CashBankPettyCashIdRouteChildren = {
+  CashBankPettyCashIdEditRoute: CashBankPettyCashIdEditRoute,
+}
+
+const CashBankPettyCashIdRouteWithChildren =
+  CashBankPettyCashIdRoute._addFileChildren(CashBankPettyCashIdRouteChildren)
+
+interface CashBankRouteChildren {
+  CashBankIndexRoute: typeof CashBankIndexRoute
+  CashBankBankIdRoute: typeof CashBankBankIdRouteWithChildren
+  CashBankBankNewRoute: typeof CashBankBankNewRoute
+  CashBankLoanIdRoute: typeof CashBankLoanIdRouteWithChildren
+  CashBankLoanNewRoute: typeof CashBankLoanNewRoute
+  CashBankPettyCashIdRoute: typeof CashBankPettyCashIdRouteWithChildren
+  CashBankPettyCashNewRoute: typeof CashBankPettyCashNewRoute
+  CashBankTransferNewRoute: typeof CashBankTransferNewRoute
+}
+
+const CashBankRouteChildren: CashBankRouteChildren = {
+  CashBankIndexRoute: CashBankIndexRoute,
+  CashBankBankIdRoute: CashBankBankIdRouteWithChildren,
+  CashBankBankNewRoute: CashBankBankNewRoute,
+  CashBankLoanIdRoute: CashBankLoanIdRouteWithChildren,
+  CashBankLoanNewRoute: CashBankLoanNewRoute,
+  CashBankPettyCashIdRoute: CashBankPettyCashIdRouteWithChildren,
+  CashBankPettyCashNewRoute: CashBankPettyCashNewRoute,
+  CashBankTransferNewRoute: CashBankTransferNewRoute,
+}
+
+const CashBankRouteWithChildren = CashBankRoute._addFileChildren(
+  CashBankRouteChildren,
+)
 
 interface ReceiptPaymentRouteChildren {
   ReceiptPaymentIndexRoute: typeof ReceiptPaymentIndexRoute
   ReceiptPaymentPaymentVoucherIdRoute: typeof ReceiptPaymentPaymentVoucherIdRoute
   ReceiptPaymentPaymentVoucherNewRoute: typeof ReceiptPaymentPaymentVoucherNewRoute
+  ReceiptPaymentReceiptVoucherIdRoute: typeof ReceiptPaymentReceiptVoucherIdRoute
+  ReceiptPaymentReceiptVoucherNewRoute: typeof ReceiptPaymentReceiptVoucherNewRoute
 }
 
 const ReceiptPaymentRouteChildren: ReceiptPaymentRouteChildren = {
   ReceiptPaymentIndexRoute: ReceiptPaymentIndexRoute,
   ReceiptPaymentPaymentVoucherIdRoute: ReceiptPaymentPaymentVoucherIdRoute,
   ReceiptPaymentPaymentVoucherNewRoute: ReceiptPaymentPaymentVoucherNewRoute,
+  ReceiptPaymentReceiptVoucherIdRoute: ReceiptPaymentReceiptVoucherIdRoute,
+  ReceiptPaymentReceiptVoucherNewRoute: ReceiptPaymentReceiptVoucherNewRoute,
 }
 
 const ReceiptPaymentRouteWithChildren = ReceiptPaymentRoute._addFileChildren(
@@ -450,6 +862,7 @@ const ReceiptPaymentRouteWithChildren = ReceiptPaymentRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CashBankRoute: CashBankRouteWithChildren,
   LedgersRoute: LedgersRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
@@ -459,6 +872,8 @@ const rootRouteChildren: RootRouteChildren = {
   BillsNewRoute: BillsNewRoute,
   ChallansIdRoute: ChallansIdRoute,
   ChallansNewRoute: ChallansNewRoute,
+  ConsumptionsIdRoute: ConsumptionsIdRoute,
+  ConsumptionsNewRoute: ConsumptionsNewRoute,
   MastersCompaniesRoute: MastersCompaniesRoute,
   MastersCustomersRoute: MastersCustomersRoute,
   MastersFixedAssetsRoute: MastersFixedAssetsRoute,
@@ -466,6 +881,8 @@ const rootRouteChildren: RootRouteChildren = {
   MastersVendorsRoute: MastersVendorsRoute,
   BillsIndexRoute: BillsIndexRoute,
   ChallansIndexRoute: ChallansIndexRoute,
+  ConsumptionsIndexRoute: ConsumptionsIndexRoute,
+  SalesInvoicesIndexRoute: SalesInvoicesIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
