@@ -68,6 +68,7 @@ interface Line {
   vat_rate: number;
   lot_number: string;
   expiry_date: string;
+  landing_cost?: number;
 }
 
 function toISODate(dateStr: string | null | undefined): string {
@@ -123,7 +124,7 @@ const emptyLine = (sno: number): Line => ({
   quantity: 1,
   per_unit: 0,
   vat_rate: 0,
-  lot_number: "",
+  lot_number: `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
   expiry_date: "",
 });
 
@@ -737,28 +738,100 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
       const linePayloads = lines
         .filter((l) => l.name.trim())
-        .map((l) => ({
-          bill_id: id!,
-          sno: l.sno,
-          ref_type: (billType === "items"
-            ? "item"
-            : billType === "services"
-              ? "service"
-              : "asset") as "item" | "service" | "asset",
-          ref_id: l.ref_id,
-          code: l.code || null,
-          name: l.name,
-          uom: l.uom || null,
-          quantity: toNumber(l.quantity, 1),
-          per_unit: toNumber(l.per_unit, 0),
-          vat_rate: toNumber(l.vat_rate, 0),
-          lot_number: l.lot_number || null,
-          expiry_date: l.expiry_date || null,
-          line_amount: computeLineAmount(l.quantity, l.per_unit),
-        }));
+        .map((l) => {
+          // Calculate landing cost per unit including transportation and other charges
+          const subtotal = lines.reduce((s, line) => s + (Number(line.quantity)||0) * (Number(line.per_unit)||0), 0);
+          const disc = Number(discount) || 0;
+          const trans = Number(transportation) || 0;
+          const other = Number(otherCharges) || 0;
+          const lineAmt = (Number(l.quantity)||0) * (Number(l.per_unit)||0);
+          const prop = subtotal > 0 ? lineAmt / subtotal : 0;
+          const lineDisc = prop * disc;
+          const lineTrans = prop * trans;
+          const lineOther = prop * other;
+          const gross = lineAmt - lineDisc + lineTrans + lineOther;
+          const qty = Number(l.quantity) || 1;
+          const landingCostPerUnit = gross / qty;
+
+          // Auto-generate lot number if empty
+          const lotNumber = l.lot_number?.trim() || `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+          return {
+            bill_id: id!,
+            sno: l.sno,
+            ref_type: (billType === "items"
+              ? "item"
+              : billType === "services"
+                ? "service"
+                : "asset") as "item" | "service" | "asset",
+            ref_id: l.ref_id,
+            code: l.code || null,
+            name: l.name,
+            uom: l.uom || null,
+            quantity: toNumber(l.quantity, 1),
+            per_unit: toNumber(l.per_unit, 0),
+            vat_rate: toNumber(l.vat_rate, 0),
+            lot_number: lotNumber,
+            expiry_date: l.expiry_date || null,
+            line_amount: computeLineAmount(l.quantity, l.per_unit),
+            landing_cost: landingCostPerUnit,
+          };
+        });
       if (linePayloads.length) {
         const { error } = await supabase.from("bill_lines").insert(linePayloads as never);
         if (error) throw error;
+      }
+
+      // Insert into stock_ledger when bill is approved and has inventory items
+      if (opts.approve && id && billType === "items") {
+        // Remove any existing stock_ledger entries for this bill to avoid duplicates on re-approve
+        await supabase.from("stock_ledger" as any).delete().eq("doc_type", "bill").eq("doc_id", id);
+
+        // Get current running totals for each item
+        const stockLedgerEntries = [];
+        for (const lp of linePayloads) {
+          if (lp.ref_type !== "item" || !lp.ref_id) continue;
+
+          // Get current running qty and amount for this item
+          const { data: lastEntry } = await supabase
+            .from("stock_ledger" as any)
+            .select("running_qty, running_amount")
+            .eq("item_id", lp.ref_id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          const prevQty = Number((lastEntry as any)?.running_qty || 0);
+          const prevAmount = Number((lastEntry as any)?.running_amount || 0);
+          const newQty = prevQty + Number(lp.quantity || 0);
+          const newAmount = prevAmount + Number(lp.landing_cost || 0) * Number(lp.quantity || 0);
+
+          stockLedgerEntries.push({
+            item_id: lp.ref_id,
+            movement_type: "inward",
+            doc_type: "bill",
+            doc_id: id,
+            doc_number: billNumber || internalBillNumber || id,
+            party_name: vendorRow?.name || "Vendor",
+            lot_number: lp.lot_number,
+            expiry_date: lp.expiry_date || null,
+            quantity: lp.quantity,
+            uom: lp.uom || "NOS",
+            unit_rate: lp.per_unit,
+            landing_unit_cost: lp.landing_cost || 0,
+            line_amount: lp.line_amount,
+            landing_total: (lp.landing_cost || 0) * Number(lp.quantity || 0),
+            running_qty: newQty,
+            running_amount: newAmount,
+          });
+        }
+
+        if (stockLedgerEntries.length > 0) {
+          const { error: ledgerErr } = await supabase.from("stock_ledger" as any).insert(stockLedgerEntries as never);
+          if (ledgerErr) {
+            console.error("Stock ledger entry failed:", ledgerErr);
+          }
+        }
       }
 
       // Post ledger entry when bill is approved and has a vendor

@@ -102,6 +102,7 @@ interface UnifiedMovement {
   lot_number?: string | null;
   expiry_date?: string | null;
   line_amount: number;
+  landing_cost?: number;
   created_at: string;
 }
 
@@ -161,7 +162,7 @@ export function MaterialCentreRegister() {
         .from("bill_lines")
         .select(`
           id, bill_id, ref_id, code, name, uom, quantity, per_unit, vat_rate,
-          lot_number, expiry_date, line_amount, created_at,
+          lot_number, expiry_date, line_amount, landing_cost, created_at,
           bills!inner(bill_number, invoice_date, status, bill_type, vendors(name))
         `)
         .eq("bills.status", "approved")
@@ -172,7 +173,7 @@ export function MaterialCentreRegister() {
         .from("delivery_challan_lines" as any)
         .select(`
           id, challan_id, ref_id, code, name, uom, quantity, per_unit,
-          lot_number, expiry_date, line_amount, created_at,
+          lot_number, expiry_date, line_amount, landing_cost, created_at,
           delivery_challans!inner(challan_number, challan_date, status, customers(name))
         `)
         .order("created_at", { ascending: false });
@@ -196,6 +197,7 @@ export function MaterialCentreRegister() {
             lot_number: b.lot_number,
             expiry_date: b.expiry_date,
             line_amount: Number(b.line_amount || 0),
+            landing_cost: Number(b.landing_cost || b.per_unit || 0),
             created_at: b.created_at,
           });
         }
@@ -218,12 +220,13 @@ export function MaterialCentreRegister() {
             lot_number: c.lot_number,
             expiry_date: c.expiry_date,
             line_amount: Number(c.line_amount || 0),
+            landing_cost: Number(c.landing_cost || c.per_unit || 0),
             created_at: c.created_at,
           });
         }
       }
 
-      list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       return list;
     },
   });
@@ -428,12 +431,17 @@ export function MaterialCentreRegister() {
       const baseQty = getBaseQty(m);
       const isOutward = m.type === "outward";
 
+      // Use landing_cost for inward movements (includes transportation/other charges)
+      const unitRate = isOutward 
+        ? Number(m.per_unit || activeDetailItem.default_rate || 0)
+        : Number(m.landing_cost || m.per_unit || activeDetailItem.default_rate || 0);
+
       if (!lotMap.has(lotKey)) {
         lotMap.set(lotKey, {
           lotNumber: rawLot,
           expiryDate: m.expiry_date || "—",
           totalQty: isOutward ? -baseQty : baseQty,
-          rate: Number(m.per_unit || activeDetailItem.default_rate || 0),
+          rate: unitRate,
           vendorName: m.partyName || "—",
           billNumber: m.docNumber || "—",
           date: m.date || m.created_at.slice(0, 10),
@@ -444,6 +452,8 @@ export function MaterialCentreRegister() {
           lot.totalQty -= baseQty;
         } else {
           lot.totalQty += baseQty;
+          // Update rate with latest landing cost for inward
+          lot.rate = unitRate;
           if (m.expiry_date && lot.expiryDate === "—") {
             lot.expiryDate = m.expiry_date;
           }
@@ -1195,7 +1205,7 @@ export function MaterialCentreRegister() {
                   </div>
 
                   <div className="rounded-md border bg-card overflow-x-auto">
-                    <Table className="min-w-[800px]">
+                    <Table className="min-w-[1100px]">
                       <TableHeader className="bg-muted/50">
                         <TableRow>
                           <TableHead className="w-[90px]">Type</TableHead>
@@ -1206,28 +1216,98 @@ export function MaterialCentreRegister() {
                           <TableHead className="w-[90px]">Expiry</TableHead>
                           <TableHead className="w-[70px]">Age</TableHead>
                           <TableHead className="w-[100px] text-right">Qty &amp; UOM</TableHead>
-                          <TableHead className="w-[80px] text-right">Rate</TableHead>
+                          <TableHead className="w-[80px] text-right">Unit Rate</TableHead>
                           <TableHead className="w-[90px] text-right">Amount</TableHead>
+                          <TableHead className="w-[90px] text-right">Landing Unit</TableHead>
+                          <TableHead className="w-[90px] text-right">Sale Amount</TableHead>
+                          <TableHead className="w-[90px] text-right">Running Qty</TableHead>
+                          <TableHead className="w-[100px] text-right">Running Value</TableHead>
+                          <TableHead className="w-[90px] text-right">Profit/Loss</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {activeMovements.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={10} className="py-6 text-center text-muted-foreground text-sm">
+                            <TableCell colSpan={15} className="py-6 text-center text-muted-foreground text-sm">
                               No stock movements recorded yet.
                             </TableCell>
                           </TableRow>
-                        ) : (
-                          activeMovements.map((m) => {
+                        ) : (() => {
+                          // Sort movements by date ascending for correct running calculation
+                          const sortedMovements = [...activeMovements].sort(
+                            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                          );
+                          
+                          // First pass: Build lot-wise landing cost map from inward movements
+                          // and track lot quantities for specific identification
+                          const lotLandingCostMap = new Map<string, number>(); // lot_number -> landing_cost_per_unit
+                          const lotQtyMap = new Map<string, number>(); // lot_number -> remaining qty
+                          
+                          for (const m of sortedMovements) {
+                            const lotKey = (m.lot_number || "").trim().toUpperCase();
+                            const qty = Number(m.quantity || 0);
+                            const costPerUnit = Number(m.landing_cost || m.per_unit || 0);
+                            
+                            if (m.type === "inward") {
+                              // Store the landing cost for this lot
+                              if (lotKey) {
+                                lotLandingCostMap.set(lotKey, costPerUnit);
+                                lotQtyMap.set(lotKey, (lotQtyMap.get(lotKey) || 0) + qty);
+                              }
+                            } else {
+                              // For outward: reduce lot quantity
+                              if (lotKey) {
+                                lotQtyMap.set(lotKey, (lotQtyMap.get(lotKey) || 0) - qty);
+                              }
+                            }
+                          }
+                          
+                          // Second pass: render with lot-specific landing costs
+                          let displayRunningQty = 0;
+                          let displayRunningValue = 0;
+                          // Track running lot-wise quantities for display
+                          const runningLotQty = new Map<string, number>();
+                          
+                          return sortedMovements.map((m) => {
                             const ageDays = calculateAge(m.created_at);
+                            const isInward = m.type === "inward";
+                            const qty = Number(m.quantity || 0);
+                            const lotKey = (m.lot_number || "").trim().toUpperCase();
+                            
+                            // Get landing cost: use lot-specific cost from map
+                            const lotLandingCost = lotLandingCostMap.get(lotKey) || 0;
+                            const inwardLandingCost = Number(m.landing_cost || m.per_unit || 0);
+                            
+                            // For display: use the lot's specific landing cost
+                            const displayLandingUnit = isInward ? inwardLandingCost : (lotLandingCost || inwardLandingCost);
+                            
+                            // Calculate running totals
+                            if (isInward) {
+                              displayRunningQty += qty;
+                              displayRunningValue += inwardLandingCost * qty;
+                              runningLotQty.set(lotKey, (runningLotQty.get(lotKey) || 0) + qty);
+                            } else {
+                              displayRunningQty -= qty;
+                              // Use lot-specific landing cost for outward
+                              displayRunningValue -= displayLandingUnit * qty;
+                              runningLotQty.set(lotKey, (runningLotQty.get(lotKey) || 0) - qty);
+                            }
+                            
+                            // Sale amount for outward (per_unit * qty)
+                            const saleAmount = isInward ? 0 : Number(m.per_unit || 0) * qty;
+                            // Landing total cost for outward (using lot-specific cost)
+                            const landingTotalCost = isInward ? 0 : displayLandingUnit * qty;
+                            // Profit/Loss = Sale Amount - Landing Cost for outward
+                            const profitLoss = isInward ? 0 : saleAmount - landingTotalCost;
+
                             return (
                               <TableRow key={m.id}>
                                 <TableCell>
                                   <Badge
-                                    variant={m.type === "inward" ? "default" : "outline"}
-                                    className={m.type === "inward" ? "bg-emerald-600 text-white text-[10px]" : "border-blue-500 text-blue-600 text-[10px]"}
+                                    variant={isInward ? "default" : "outline"}
+                                    className={isInward ? "bg-emerald-600 text-white text-[10px]" : "border-blue-500 text-blue-600 text-[10px]"}
                                   >
-                                    {m.type === "inward" ? "Inward" : "Outward"}
+                                    {isInward ? "Inward" : "Outward"}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-xs">{formatDate(m.date, dateFormat)}</TableCell>
@@ -1244,49 +1324,95 @@ export function MaterialCentreRegister() {
                                     "—"
                                   )}
                                 </TableCell>
-                                <TableCell className={`text-right font-medium font-mono ${m.type === "inward" ? "text-emerald-600" : "text-blue-600"}`}>
-                                  {m.type === "inward" ? `+${num(m.quantity)}` : `-${num(m.quantity)}`}{" "}
+                                <TableCell className={`text-right font-medium font-mono ${isInward ? "text-emerald-600" : "text-blue-600"}`}>
+                                  {isInward ? `+${num(qty)}` : `-${num(qty)}`}{" "}
                                   <span className="text-[10px] font-normal text-muted-foreground">{m.uom || "NOS"}</span>
                                 </TableCell>
                                 <TableCell className="text-right text-xs">{inr(m.per_unit)}</TableCell>
-                                <TableCell className="text-right font-semibold text-xs">{inr(m.line_amount)}</TableCell>
+                                <TableCell className="text-right font-semibold text-xs">{inr(Number(m.line_amount || 0))}</TableCell>
+                                <TableCell className="text-right text-xs font-mono font-semibold text-primary">{inr(displayLandingUnit)}</TableCell>
+                                <TableCell className={`text-right text-xs font-medium ${isInward ? "text-muted-foreground" : "text-blue-600"}`}>
+                                  {isInward ? "—" : inr(saleAmount)}
+                                </TableCell>
+                                <TableCell className={`text-right text-xs font-mono ${displayRunningQty >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                  {num(displayRunningQty)} <span className="text-[9px] text-muted-foreground">{m.uom || "NOS"}</span>
+                                </TableCell>
+                                <TableCell className="text-right text-xs font-semibold">{inr(displayRunningValue)}</TableCell>
+                                <TableCell className={`text-right text-xs font-bold ${profitLoss > 0 ? "text-emerald-600" : profitLoss < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                                  {isInward ? "—" : (profitLoss >= 0 ? "+" : "") + inr(profitLoss)}
+                                </TableCell>
                               </TableRow>
                             );
-                          })
-                        )}
+                          });
+                        })()}
                       </TableBody>
                     </Table>
                   </div>
 
                   {/* Final Closing Balance Summary Section */}
-                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-4">
-                    <div className="flex items-center justify-between border-b border-primary/20 pb-3">
-                      <div>
-                        <h4 className="font-semibold text-sm text-foreground">Final Closing Stock Summary</h4>
-                        <p className="text-xs text-muted-foreground">Current physical stock in material centre based on movements</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs text-muted-foreground block">Closing Valuation</span>
-                        <span className="text-xl font-bold text-primary">
-                          {inr(Number(activeDetailItem.qty || 0) * Number(activeDetailItem.default_rate || 0))}
-                        </span>
-                      </div>
-                    </div>
+                  {(() => {
+                    // Calculate closing value using lot-specific landing costs
+                    const sortedMovements = [...activeMovements].sort(
+                      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                    );
+                    
+                    // Build lot-wise tracking
+                    const lotLandingCost = new Map<string, number>(); // lot -> cost per unit
+                    const lotQty = new Map<string, number>(); // lot -> remaining qty
+                    
+                    for (const m of sortedMovements) {
+                      const lotKey = (m.lot_number || "").trim().toUpperCase();
+                      const qty = Number(m.quantity || 0);
+                      const costPerUnit = Number(m.landing_cost || m.per_unit || 0);
+                      
+                      if (m.type === "inward") {
+                        lotLandingCost.set(lotKey, costPerUnit);
+                        lotQty.set(lotKey, (lotQty.get(lotKey) || 0) + qty);
+                      } else {
+                        lotQty.set(lotKey, (lotQty.get(lotKey) || 0) - qty);
+                      }
+                    }
+                    
+                    // Calculate totals from remaining stock in each lot
+                    let closingQty = 0;
+                    let closingValue = 0;
+                    for (const [lotKey, qty] of lotQty.entries()) {
+                      if (qty > 0) {
+                        closingQty += qty;
+                        closingValue += qty * (lotLandingCost.get(lotKey) || 0);
+                      }
+                    }
+                    const avgLandingCost = closingQty > 0 ? closingValue / closingQty : 0;
+                    
+                    return (
+                      <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-4">
+                        <div className="flex items-center justify-between border-b border-primary/20 pb-3">
+                          <div>
+                            <h4 className="font-semibold text-sm text-foreground">Final Closing Stock Summary</h4>
+                            <p className="text-xs text-muted-foreground">Current physical stock in material centre based on movements</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs text-muted-foreground block">Closing Valuation (Landing Cost)</span>
+                            <span className="text-xl font-bold text-primary">
+                              {inr(closingValue)}
+                            </span>
+                          </div>
+                        </div>
 
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div className="rounded-md bg-background p-3 border">
-                        <span className="text-xs text-muted-foreground block">Final Closing Quantity</span>
-                        <span className="text-2xl font-bold text-foreground">
-                          {num(activeDetailItem.qty)} <span className="text-sm font-medium text-muted-foreground">{activeDetailItem.uom}</span>
-                        </span>
-                      </div>
-                      <div className="rounded-md bg-background p-3 border">
-                        <span className="text-xs text-muted-foreground block">Purchase Default Rate</span>
-                        <span className="text-2xl font-bold text-foreground">
-                          {inr(activeDetailItem.default_rate)}
-                        </span>
-                      </div>
-                    </div>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div className="rounded-md bg-background p-3 border">
+                            <span className="text-xs text-muted-foreground block">Final Closing Quantity</span>
+                            <span className="text-2xl font-bold text-foreground">
+                              {num(closingQty)} <span className="text-sm font-medium text-muted-foreground">{activeDetailItem.uom}</span>
+                            </span>
+                          </div>
+                          <div className="rounded-md bg-background p-3 border">
+                            <span className="text-xs text-muted-foreground block">Avg Landing Cost/Unit</span>
+                            <span className="text-2xl font-bold text-foreground">
+                              {inr(avgLandingCost)}
+                            </span>
+                          </div>
+                        </div>
 
                     {/* Active Lots Breakdown */}
                     {activeLotRegister.filter((lot) => lot.totalQty > 0).length > 0 ? (
@@ -1302,6 +1428,7 @@ export function MaterialCentreRegister() {
                                 <TableHead className="text-xs">Expiry Date</TableHead>
                                 <TableHead className="text-xs">Status</TableHead>
                                 <TableHead className="text-xs text-right">Remaining Stock</TableHead>
+                                <TableHead className="text-xs text-right">Landing Cost/Unit</TableHead>
                                 <TableHead className="text-xs text-right">Estimated Value</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -1323,6 +1450,7 @@ export function MaterialCentreRegister() {
                                       <TableCell className="text-right font-mono font-semibold text-xs text-primary">
                                         {num(lotQty)} {lotUom}
                                       </TableCell>
+                                      <TableCell className="text-right text-xs font-mono">{inr(lot.rate)}</TableCell>
                                       <TableCell className="text-right text-xs font-medium">
                                         {inr(lot.totalQty * lot.rate)}
                                       </TableCell>
@@ -1334,7 +1462,9 @@ export function MaterialCentreRegister() {
                         </div>
                       </div>
                     ) : null}
-                  </div>
+                      </div>
+                    );
+                  })()}
                 </TabsContent>
 
                 {/* Tab 3: Detailed Master Specifications */}

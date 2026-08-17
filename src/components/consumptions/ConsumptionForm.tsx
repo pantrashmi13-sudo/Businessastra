@@ -42,6 +42,9 @@ interface ConsumptionLine {
   uom: string;
   quantity: number;
   per_unit: number;
+  lot_number?: string;
+  expiry_date?: string;
+  landing_cost?: number;
 }
 
 interface ConsumptionFormProps {
@@ -60,6 +63,9 @@ const emptyLine = (sno: number): ConsumptionLine => ({
   uom: "NOS",
   quantity: 1,
   per_unit: 0,
+  lot_number: "",
+  expiry_date: "",
+  landing_cost: 0,
 });
 
 const lineTotal = (l: ConsumptionLine) => Number(l.quantity || 0) * Number(l.per_unit || 0);
@@ -94,20 +100,111 @@ export function ConsumptionForm({ consumptionId, initial }: ConsumptionFormProps
       : [emptyLine(1)],
   );
 
-  // Load Other Items (is_inventory = false) from items master
+  // Load Items from items master (inventory items with stock)
   const items = useQuery({
-    queryKey: ["items", "other-items"],
+    queryKey: ["items", "consumption-items"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("items")
         .select("*")
-        .eq("is_inventory", false)
         .eq("is_service", false)
+        .gt("qty", 0)
         .order("item_code");
       if (error) throw error;
       return data ?? [];
     },
   });
+
+  // Load purchase bill lines to get lot info
+  const billLines = useQuery({
+    queryKey: ["bill_lines", "consumption-lots"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bill_lines")
+        .select(`
+          id, ref_id, lot_number, expiry_date, quantity, per_unit, landing_cost, created_at,
+          bills!inner(status)
+        `)
+        .eq("bills.status", "approved")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data as Array<Record<string, unknown>>) ?? [];
+    },
+  });
+
+  // Load previous consumption lines to subtract
+  const consumptionLines = useQuery({
+    queryKey: ["consumption_lines", "lots"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("consumption_lines")
+        .select("id, ref_id, lot_number, quantity, uom, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data as Array<Record<string, unknown>>) ?? [];
+    },
+  });
+
+  // Helper: get available lots for a selected item
+  const getAvailableLotsForItem = (itemId: string | null) => {
+    if (!itemId) return [];
+    const itemMaster = (items.data ?? []).find((i) => i.id === itemId) as Record<string, unknown> | undefined;
+    if (!itemMaster) return [];
+
+    const matchingBillLines = (billLines.data ?? []).filter((b) => b.ref_id === itemId);
+    const matchingConsumptionLines = (consumptionLines.data ?? []).filter((c) => c.ref_id === itemId);
+
+    const lotsMap = new Map<
+      string,
+      { lot_number: string; expiry_date: string; created_at: string; qty: number; per_unit: number; landing_cost: number }
+    >();
+
+    // Process inward bill lines
+    for (const bl of matchingBillLines) {
+      const rawLot = (bl.lot_number as string)?.trim();
+      if (!rawLot) continue;
+      
+      const lotKey = rawLot.toUpperCase();
+      const existing = lotsMap.get(lotKey);
+      const landingCost = Number(bl.landing_cost || bl.per_unit || 0);
+      
+      if (existing) {
+        existing.qty += Number(bl.quantity || 0);
+      } else {
+        lotsMap.set(lotKey, {
+          lot_number: rawLot,
+          expiry_date: (bl.expiry_date as string) || "",
+          created_at: (bl.created_at as string) || new Date().toISOString(),
+          qty: Number(bl.quantity || 0),
+          per_unit: Number(bl.per_unit || 0),
+          landing_cost: landingCost,
+        });
+      }
+    }
+
+    // Subtract consumption lines
+    for (const cl of matchingConsumptionLines) {
+      const rawLot = (cl.lot_number as string)?.trim();
+      if (!rawLot) continue;
+      
+      const lotKey = rawLot.toUpperCase();
+      let consumeQty = Number(cl.quantity || 0);
+      const clUom = (cl.uom as string) || "";
+      const altUom = (itemMaster.alt_uom as string) || "";
+      const altConv = Number(itemMaster.alt_uom_conversion || 0);
+      
+      if (altUom && clUom === altUom && altConv > 0) {
+        consumeQty = consumeQty / altConv;
+      }
+
+      const existing = lotsMap.get(lotKey);
+      if (existing) {
+        existing.qty -= consumeQty;
+      }
+    }
+
+    return Array.from(lotsMap.values()).filter((lot) => lot.qty > 0);
+  };
 
   const itemOptions: EntityOption[] = useMemo(
     () =>

@@ -70,6 +70,7 @@ interface ChallanLine {
   sub_parent_category?: string;
   sub_category?: string;
   warehouse?: string;
+  landing_cost?: number;
 }
 
 interface ChallanFormProps {
@@ -88,7 +89,7 @@ const emptyLine = (sno: number): ChallanLine => ({
   uom: "NOS",
   quantity: 1,
   per_unit: 0,
-  lot_number: "",
+  lot_number: `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
   expiry_date: "",
 });
 
@@ -184,13 +185,17 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     },
   });
 
-  // Load purchase bill lines query to extract lots per item
+  // Load purchase bill lines query to extract lots per item (only from approved bills)
   const billLines = useQuery({
     queryKey: ["bill_lines", "lots"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bill_lines")
-        .select("id, ref_id, lot_number, expiry_date, quantity, per_unit, created_at")
+        .select(`
+          id, ref_id, lot_number, expiry_date, quantity, per_unit, landing_cost, created_at,
+          bills!inner(status)
+        `)
+        .eq("bills.status", "approved")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data as Array<Record<string, unknown>>) ?? [];
@@ -216,42 +221,48 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     const itemMaster = (items.data ?? []).find((i) => i.id === itemId) as Record<string, unknown> | undefined;
     if (!itemMaster) return [];
 
-    const itemCode = (itemMaster.item_code as string)?.trim().toUpperCase() || "DEFAULT";
-    const masterStock = Number(itemMaster.qty || 0);
-    const masterLotNum = (itemMaster.lot_number as string)?.trim();
-    const defaultLotLabel = masterLotNum || `LOT-${itemCode}`;
     const altUom = (itemMaster.alt_uom as string) || "";
     const altConv = Number(itemMaster.alt_uom_conversion || 0);
 
+    // Only get lots from approved bill_lines
     const matchingBillLines = (billLines.data ?? []).filter((b) => b.ref_id === itemId);
     const matchingChallanLines = (challanLines.data ?? []).filter((c) => c.ref_id === itemId);
 
     const lotsMap = new Map<
       string,
-      { lot_number: string; expiry_date: string; created_at: string; qty: number; per_unit: number }
+      { lot_number: string; expiry_date: string; created_at: string; qty: number; per_unit: number; landing_cost: number }
     >();
 
-    // 1. Process inward purchase bill lines
+    // 1. Process inward purchase bill lines (only from approved bills)
     for (const bl of matchingBillLines) {
-      const rawLot = (bl.lot_number as string)?.trim() || defaultLotLabel;
+      const rawLot = (bl.lot_number as string)?.trim();
+      if (!rawLot) continue; // Skip if no lot number (should have been auto-generated)
+      
       const lotKey = rawLot.toUpperCase();
       const existing = lotsMap.get(lotKey);
+      const landingCost = Number(bl.landing_cost || bl.per_unit || 0);
+      
       if (existing) {
         existing.qty += Number(bl.quantity || 0);
+        // Update landing cost if we have a better value
+        if (landingCost > 0) existing.landing_cost = landingCost;
       } else {
         lotsMap.set(lotKey, {
           lot_number: rawLot,
-          expiry_date: (bl.expiry_date as string) || (itemMaster.expiry_date as string) || "",
-          created_at: (bl.created_at as string) || (itemMaster.created_at as string) || new Date().toISOString(),
+          expiry_date: (bl.expiry_date as string) || "",
+          created_at: (bl.created_at as string) || new Date().toISOString(),
           qty: Number(bl.quantity || 0),
           per_unit: Number(bl.per_unit || itemMaster.default_rate || 0),
+          landing_cost: landingCost,
         });
       }
     }
 
     // 2. Subtract outward dispatch challan lines
     for (const cl of matchingChallanLines) {
-      const rawLot = (cl.lot_number as string)?.trim() || defaultLotLabel;
+      const rawLot = (cl.lot_number as string)?.trim();
+      if (!rawLot) continue;
+      
       const lotKey = rawLot.toUpperCase();
       let dispatchQty = Number(cl.quantity || 0);
 
@@ -267,44 +278,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
       }
     }
 
-    // 3. If no bill lines exist, seed from master stock
-    if (matchingBillLines.length === 0) {
-      const fallbackKey = defaultLotLabel.toUpperCase();
-      if (!lotsMap.has(fallbackKey)) {
-        lotsMap.set(fallbackKey, {
-          lot_number: defaultLotLabel,
-          expiry_date: (itemMaster.expiry_date as string) || "",
-          created_at: (itemMaster.created_at as string) || new Date().toISOString(),
-          qty: masterStock,
-          per_unit: Number(itemMaster.default_rate || 0),
-        });
-      }
-    } else {
-      // 4. Handle unassigned remaining stock (master qty minus sum of lot net balances)
-      let lotNetTotal = 0;
-      for (const lot of lotsMap.values()) {
-        if (lot.qty > 0) lotNetTotal += lot.qty;
-      }
-      const unassignedQty = Math.max(0, masterStock - lotNetTotal);
-
-      if (unassignedQty > 0) {
-        const fallbackLotNum = masterLotNum || "General Stock";
-        const fallbackKey = fallbackLotNum.toUpperCase();
-        if (lotsMap.has(fallbackKey)) {
-          const existing = lotsMap.get(fallbackKey)!;
-          existing.qty += unassignedQty;
-        } else {
-          lotsMap.set(fallbackKey, {
-            lot_number: fallbackLotNum,
-            expiry_date: (itemMaster.expiry_date as string) || "",
-            created_at: (itemMaster.created_at as string) || new Date().toISOString(),
-            qty: unassignedQty,
-            per_unit: Number(itemMaster.default_rate || 0),
-          });
-        }
-      }
-    }
-
+    // Return only lots with positive quantity (actual available stock)
     return Array.from(lotsMap.values()).filter((lot) => lot.qty > 0);
   };
 
@@ -473,9 +447,10 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
           uom: l.uom || "NOS",
           quantity: toNumber(l.quantity, 1),
           per_unit: toNumber(l.per_unit, 0),
-          lot_number: l.lot_number || null,
+          lot_number: l.lot_number?.trim() || `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
           expiry_date: l.expiry_date || null,
           line_amount: Number(l.quantity || 0) * Number(l.per_unit || 0),
+          landing_cost: l.landing_cost || l.per_unit || 0,
         }));
 
       if (linePayloads.length) {
@@ -1229,6 +1204,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                                       created_at: selectedLot.created_at,
                                       available_qty: selectedLot.qty,
                                       per_unit: selectedLot.per_unit || l.per_unit,
+                                      landing_cost: selectedLot.landing_cost || l.per_unit,
                                     });
                                   } else {
                                     updateLine(i, { lot_number: selectedLotNum });
