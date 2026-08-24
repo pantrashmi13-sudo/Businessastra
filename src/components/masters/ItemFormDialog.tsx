@@ -29,6 +29,110 @@ import { Package2, Wrench, ArrowLeft } from "lucide-react";
 import { itemSchema } from "./schemas";
 import { cn } from "@/lib/utils";
 
+// ── Standalone Category Dialog ─────────────────────────────────────────────
+// Extracted as its own component so React gives it a stable identity and
+// never unmounts/remounts it on parent re-renders (which caused the
+// "shaking" / focus-loss bug when typing inside the dialog).
+interface CategoryDialogProps {
+  catVal: string;
+  onDone: (vals: {
+    category: string;
+    parentCategory: string;
+    subParentCategory: string;
+    subCategory: string;
+  }) => void;
+}
+function CategoryDialog({ catVal, onDone }: CategoryDialogProps) {
+  const [open, setOpen] = useState(false);
+  const [tempCategory, setTempCategory] = useState("");
+  const [tempParentCategory, setTempParentCategory] = useState("");
+  const [tempSubParentCategory, setTempSubParentCategory] = useState("");
+  const [tempSubCategory, setTempSubCategory] = useState("");
+
+  function handleOpen(nextOpen: boolean) {
+    if (nextOpen) {
+      setTempCategory(catVal);
+      setTempParentCategory("");
+      setTempSubParentCategory("");
+      setTempSubCategory("");
+    }
+    setOpen(nextOpen);
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Dialog open={open} onOpenChange={handleOpen}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-accent transition-colors"
+        >
+          <span className={catVal ? "" : "text-muted-foreground"}>
+            {catVal || "Select Category"}
+          </span>
+          <span className="text-xs text-muted-foreground">Choose →</span>
+        </button>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Category Hierarchy</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Category</Label>
+              <Input
+                placeholder="e.g., Electronics"
+                value={tempCategory}
+                onChange={(e) => setTempCategory(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Parent Category</Label>
+              <Input
+                placeholder="e.g., Phones"
+                value={tempParentCategory}
+                onChange={(e) => setTempParentCategory(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sub-Parent Category</Label>
+              <Input
+                placeholder="e.g., Smartphones"
+                value={tempSubParentCategory}
+                onChange={(e) => setTempSubParentCategory(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sub-Category</Label>
+              <Input
+                placeholder="e.g., Android"
+                value={tempSubCategory}
+                onChange={(e) => setTempSubCategory(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => {
+                onDone({
+                  category: tempCategory,
+                  parentCategory: tempParentCategory,
+                  subParentCategory: tempSubParentCategory,
+                  subCategory: tempSubCategory,
+                });
+                setOpen(false);
+              }}
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Extended form schema — TDS/Ledger are UI-only until DB migration adds those columns
 const formSchema = itemSchema.extend({
   sales_ledger: z.string().optional(),
@@ -82,33 +186,18 @@ export function ItemFormDialog({
   };
 
   const [selectedType, setSelectedType] = useState<ItemType | null>(getInitialType);
-  const [catDialogOpen, setCatDialogOpen] = useState(false);
   const [openingStockOpen, setOpeningStockOpen] = useState(false);
   const [tempQty, setTempQty] = useState(0);
   const [tempRate, setTempRate] = useState(0);
   const [tempVal, setTempVal] = useState(0);
   const [warehouseOtherSelected, setWarehouseOtherSelected] = useState(false);
   const [customWarehouse, setCustomWarehouse] = useState("");
-  const [tempCategory, setTempCategory] = useState("");
-  const [tempParentCategory, setTempParentCategory] = useState("");
-  const [tempSubParentCategory, setTempSubParentCategory] = useState("");
-  const [tempSubCategory, setTempSubCategory] = useState("");
-
-  const handleCatDialogOpenChange = React.useCallback((open: boolean) => {
-    setCatDialogOpen(open);
-    if (open) {
-      setTempCategory((form.getValues("category") as string) ?? "");
-      setTempParentCategory((form.getValues("parent_category") as string) ?? "");
-      setTempSubParentCategory((form.getValues("sub_parent_category") as string) ?? "");
-      setTempSubCategory((form.getValues("sub_category") as string) ?? "");
-    }
-  }, []);
 
   const buildDefaults = (): Partial<FormValues> => ({
-    item_code: ((initial?.item_code ?? ocrPrefill?.item_code ?? "") as string),
-    item_name: ((initial?.item_name ?? ocrPrefill?.item_name ?? "") as string),
-    uom: ((initial?.uom ?? ocrPrefill?.uom ?? "NOS") as string),
-    hsn_code: ((initial?.hsn_code ?? ocrPrefill?.hsn_code ?? "") as string),
+    item_code: (initial?.item_code ?? ocrPrefill?.item_code ?? "") as string,
+    item_name: (initial?.item_name ?? ocrPrefill?.item_name ?? "") as string,
+    uom: (initial?.uom ?? ocrPrefill?.uom ?? "NOS") as string,
+    hsn_code: (initial?.hsn_code ?? ocrPrefill?.hsn_code ?? "") as string,
     vat_rate: Number(initial?.vat_rate ?? ocrPrefill?.vat_rate ?? 13),
     selling_price: Number(initial?.selling_price ?? 0),
     default_rate: Number(initial?.default_rate ?? ocrPrefill?.per_unit ?? 0),
@@ -117,21 +206,21 @@ export function ItemFormDialog({
     opening_qty: Number(initial?.opening_qty ?? 0),
     opening_rate: Number(initial?.opening_rate ?? 0),
     opening_value: Number(initial?.opening_value ?? 0),
-    warehouse: ((initial?.warehouse ?? ocrPrefill?.warehouse ?? "") as string),
-    warehouse_id: ((initial?.warehouse_id ?? "") as string),
-    rag_number: ((initial?.rag_number ?? "") as string),
-    status: ((initial?.status ?? "Active") as string),
-    category: ((initial?.category ?? "") as string),
-    parent_category: ((initial?.parent_category ?? "") as string),
-    sub_parent_category: ((initial?.sub_parent_category ?? "") as string),
-    sub_category: ((initial?.sub_category ?? "") as string),
-    alt_uom: ((initial?.alt_uom ?? "") as string),
+    warehouse: (initial?.warehouse ?? ocrPrefill?.warehouse ?? "") as string,
+    warehouse_id: (initial?.warehouse_id ?? "") as string,
+    rag_number: (initial?.rag_number ?? "") as string,
+    status: (initial?.status ?? "Active") as string,
+    category: (initial?.category ?? "") as string,
+    parent_category: (initial?.parent_category ?? "") as string,
+    sub_parent_category: (initial?.sub_parent_category ?? "") as string,
+    sub_category: (initial?.sub_category ?? "") as string,
+    alt_uom: (initial?.alt_uom ?? "") as string,
     alt_uom_conversion: Number(initial?.alt_uom_conversion ?? 0),
-    description: ((initial?.description ?? "") as string),
+    description: (initial?.description ?? "") as string,
     is_inventory: initial?.is_inventory !== false,
     is_service: Boolean(initial?.is_service),
-    sales_ledger: ((initial?.sales_ledger ?? "") as string),
-    purchase_ledger: ((initial?.purchase_ledger ?? "") as string),
+    sales_ledger: (initial?.sales_ledger ?? "") as string,
+    purchase_ledger: (initial?.purchase_ledger ?? "") as string,
     tds_applicable: Boolean(initial?.tds_applicable),
     tds_rate: Number(initial?.tds_rate ?? 0),
   });
@@ -150,8 +239,7 @@ export function ItemFormDialog({
 
       // Set type flags from selected type
       payload.is_service = selectedType === "service";
-      payload.is_inventory =
-        selectedType === "item" ? Boolean(values.is_inventory) : false;
+      payload.is_inventory = selectedType === "item" ? Boolean(values.is_inventory) : false;
 
       // Set current qty to opening_qty for new records
       if (!initial?.id) {
@@ -259,10 +347,7 @@ export function ItemFormDialog({
               .from("bill_lines")
               .select("line_amount")
               .eq("bill_id", bill.id);
-            const totalVal = (lines || []).reduce(
-              (sum, l) => sum + Number(l.line_amount || 0),
-              0
-            );
+            const totalVal = (lines || []).reduce((sum, l) => sum + Number(l.line_amount || 0), 0);
             await supabase
               .from("bills")
               .update({ final_amount: totalVal, taxable_amount: totalVal } as never)
@@ -319,9 +404,7 @@ export function ItemFormDialog({
           placeholder={placeholder}
           {...form.register(name, { valueAsNumber: type === "number" })}
         />
-        {err?.message && (
-          <p className="text-xs text-destructive">{err.message as string}</p>
-        )}
+        {err?.message && <p className="text-xs text-destructive">{err.message as string}</p>}
       </div>
     );
   };
@@ -369,9 +452,7 @@ export function ItemFormDialog({
     <div className="flex items-center justify-between rounded-lg border p-3 bg-muted/20">
       <div>
         <Label className="text-sm font-medium">{label}</Label>
-        {description && (
-          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
-        )}
+        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
       </div>
       <Switch
         checked={!!form.watch(name)}
@@ -383,9 +464,7 @@ export function ItemFormDialog({
   // ─── Type Selector ─────────────────────────────────────────────────────
   const TypeSelector = () => (
     <div className="space-y-6 py-4">
-      <p className="text-sm text-center text-muted-foreground">
-        What would you like to add?
-      </p>
+      <p className="text-sm text-center text-muted-foreground">What would you like to add?</p>
       <div className="grid grid-cols-2 gap-4">
         {[
           {
@@ -423,7 +502,7 @@ export function ItemFormDialog({
             <div
               className={cn(
                 "flex h-14 w-14 items-center justify-center rounded-full transition-transform group-hover:scale-110",
-                iconBg
+                iconBg,
               )}
             >
               <Icon className={cn("h-7 w-7", iconColor)} />
@@ -460,81 +539,24 @@ export function ItemFormDialog({
         </div>
 
         {/* Category picker */}
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-muted-foreground">Category</Label>
-          <Dialog
-            open={catDialogOpen}
-            onOpenChange={handleCatDialogOpenChange}
-          >
-            <button
-              type="button"
-              onClick={() => setCatDialogOpen(true)}
-              className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-accent transition-colors"
-            >
-              <span className={catVal ? "" : "text-muted-foreground"}>
-                {catVal || "Select Category"}
-              </span>
-              <span className="text-xs text-muted-foreground">Choose →</span>
-            </button>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Category Hierarchy</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                <div className="space-y-1">
-                  <Label className="text-xs">Category</Label>
-                  <Input
-                    placeholder="e.g., Electronics"
-                    value={tempCategory}
-                    onChange={(e) => setTempCategory(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Parent Category</Label>
-                  <Input
-                    placeholder="e.g., Phones"
-                    value={tempParentCategory}
-                    onChange={(e) => setTempParentCategory(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Sub-Parent Category</Label>
-                  <Input
-                    placeholder="e.g., Smartphones"
-                    value={tempSubParentCategory}
-                    onChange={(e) => setTempSubParentCategory(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Sub-Category</Label>
-                  <Input
-                    placeholder="e.g., Android"
-                    value={tempSubCategory}
-                    onChange={(e) => setTempSubCategory(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    form.setValue("category", tempCategory as never);
-                    form.setValue("parent_category", tempParentCategory as never);
-                    form.setValue("sub_parent_category", tempSubParentCategory as never);
-                    form.setValue("sub_category", tempSubCategory as never);
-                    setCatDialogOpen(false);
-                  }}
-                >
-                  Done
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+        <CategoryDialog
+          catVal={catVal}
+          onDone={({ category, parentCategory, subParentCategory, subCategory }) => {
+            form.setValue("category", category as never);
+            form.setValue("parent_category", parentCategory as never);
+            form.setValue("sub_parent_category", subParentCategory as never);
+            form.setValue("sub_category", subCategory as never);
+          }}
+        />
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Alt UOM" name="alt_uom" placeholder="BOX, CASE, DOZEN…" />
-          <Field label="1 Main = X Alt" name="alt_uom_conversion" type="number" placeholder="e.g., 12" />
+          <Field
+            label="1 Main = X Alt"
+            name="alt_uom_conversion"
+            type="number"
+            placeholder="e.g., 12"
+          />
         </div>
 
         {/* Opening Stock */}
@@ -658,12 +680,10 @@ export function ItemFormDialog({
                 "rounded-md p-3 border transition-all",
                 isInventory
                   ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-800"
-                  : "bg-muted/30 border-transparent opacity-50"
+                  : "bg-muted/30 border-transparent opacity-50",
               )}
             >
-              <p className="font-semibold text-emerald-700 dark:text-emerald-400">
-                Inventory ON
-              </p>
+              <p className="font-semibold text-emerald-700 dark:text-emerald-400">Inventory ON</p>
               <p className="text-muted-foreground mt-1">
                 Stock tracked · Delivery Challan on dispatch
               </p>
@@ -673,24 +693,22 @@ export function ItemFormDialog({
                 "rounded-md p-3 border transition-all",
                 !isInventory
                   ? "bg-orange-50 border-orange-200 dark:bg-orange-950/40 dark:border-orange-800"
-                  : "bg-muted/30 border-transparent opacity-50"
+                  : "bg-muted/30 border-transparent opacity-50",
               )}
             >
-              <p className="font-semibold text-orange-700 dark:text-orange-400">
-                Inventory OFF
-              </p>
-              <p className="text-muted-foreground mt-1">
-                No stock tracking · Goes to Consumption
-              </p>
+              <p className="font-semibold text-orange-700 dark:text-orange-400">Inventory OFF</p>
+              <p className="text-muted-foreground mt-1">No stock tracking · Goes to Consumption</p>
             </div>
           </div>
         </div>
 
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-muted-foreground">Warehouse</Label>
             <Select
-              value={(form.watch("warehouse_id") as string) || (form.watch("warehouse") as string) || ""}
+              value={
+                (form.watch("warehouse_id") as string) || (form.watch("warehouse") as string) || ""
+              }
               onValueChange={(v) => {
                 const wh = warehouses?.find((w: any) => w.id === v);
                 form.setValue("warehouse_id", v as never);
@@ -709,16 +727,16 @@ export function ItemFormDialog({
               </SelectContent>
             </Select>
           </div>
-          
+
           {(form.watch("warehouse_id") || form.watch("warehouse")) && (
-            <Field label="RAG Number (Rack, Aisle, Grid)" name="rag_number" placeholder="e.g. Rack A, Row 2" />
+            <Field
+              label="RAG Number (Rack, Aisle, Grid)"
+              name="rag_number"
+              placeholder="e.g. Rack A, Row 2"
+            />
           )}
 
-          <SelectField
-            label="Status"
-            name="status"
-            options={["Active", "Inactive"]}
-          />
+          <SelectField label="Status" name="status" options={["Active", "Inactive"]} />
           <Field label="Reorder Level" name="reorder_level" type="number" />
           <Field label="Default Purchase Rate" name="default_rate" type="number" />
         </div>
@@ -794,10 +812,7 @@ export function ItemFormDialog({
       <TabsContent value="ledger" className="space-y-3 pt-3">
         <div className="space-y-1.5">
           <Label className="text-xs font-medium text-muted-foreground">Sales Ledger</Label>
-          <Input
-            placeholder="e.g., Service Revenue A/c"
-            {...form.register("sales_ledger")}
-          />
+          <Input placeholder="e.g., Service Revenue A/c" {...form.register("sales_ledger")} />
         </div>
         <SwitchRow
           name="tds_applicable"
@@ -817,10 +832,10 @@ export function ItemFormDialog({
       ? "Edit Service"
       : "Edit Item"
     : selectedType === "service"
-    ? "New Service"
-    : selectedType === "item"
-    ? "New Item"
-    : "Add to Masters";
+      ? "New Service"
+      : selectedType === "item"
+        ? "New Item"
+        : "Add to Masters";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
