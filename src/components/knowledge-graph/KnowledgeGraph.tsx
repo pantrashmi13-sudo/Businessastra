@@ -138,75 +138,135 @@ export function KnowledgeGraph() {
     setZoom((z) => Math.max(0.3, Math.min(3, z * delta)));
   }, []);
 
+  // Touch Handlers for Mobile
+  const touchStartDist = useRef<number | null>(null);
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsPanning(true);
+      panStart.current = {
+        x: e.touches[0].clientX - pan.x,
+        y: e.touches[0].clientY - pan.y,
+      };
+    } else if (e.touches.length === 2) {
+      setIsPanning(false);
+      touchStartDist.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    }
+  }, [pan]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 1 && isPanning) {
+      setPan({
+        x: e.touches[0].clientX - panStart.current.x,
+        y: e.touches[0].clientY - panStart.current.y,
+      });
+    } else if (e.touches.length === 2 && touchStartDist.current !== null) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scaleFactor = dist / touchStartDist.current;
+      setZoom((z) => Math.max(0.25, Math.min(3, z * (scaleFactor > 1 ? 1.03 : 0.97))));
+      touchStartDist.current = dist;
+    }
+  }, [isPanning]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsPanning(false);
+    touchStartDist.current = null;
+  }, []);
+
   const selectedNodeData = selectedNode ? nodeMap.get(selectedNode) : null;
 
   return (
-    <div className="relative flex h-[calc(100vh-8rem)] w-full overflow-hidden rounded-lg border bg-card">
-      {/* Toolbar */}
-      <div className="absolute left-3 top-3 z-20 flex items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search entities..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-8 w-52 pl-8 text-xs"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
+    <div className="relative flex h-full w-full overflow-hidden rounded-xl border bg-card/60 shadow-inner">
+      {/* Responsive Toolbar */}
+      <div className="absolute left-2.5 top-2.5 right-2.5 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        <div className="flex items-center gap-1.5 pointer-events-auto bg-background/90 p-1 rounded-lg border backdrop-blur shadow-sm">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search schema..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-7 w-36 sm:w-48 pl-7 text-xs bg-transparent border-0 focus-visible:ring-0"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleZoomIn}
+            title="Zoom in"
+          >
+            <ZoomIn className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleZoomOut}
+            title="Zoom out"
+          >
+            <ZoomOut className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={handleReset}
+            title="Reset view"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant={showClusters ? "secondary" : "ghost"}
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => setShowClusters((s) => !s)}
+            title="Toggle cluster backgrounds"
+          >
+            <Network className="h-3.5 w-3.5" />
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleZoomIn}
-          title="Zoom in"
-        >
-          <ZoomIn className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleZoomOut}
-          title="Zoom out"
-        >
-          <ZoomOut className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleReset}
-          title="Reset view"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant={showClusters ? "default" : "outline"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setShowClusters((s) => !s)}
-          title="Toggle cluster backgrounds"
-        >
-          <Network className="h-3.5 w-3.5" />
-        </Button>
+
+        {/* Legend pills (desktop/tablet only) */}
+        <div className="hidden lg:flex pointer-events-auto flex-wrap gap-1 rounded-lg border bg-background/90 px-2 py-1 text-[10px] backdrop-blur shadow-sm">
+          {CLUSTERS.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setSearchQuery(c.label)}
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-muted"
+            >
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: c.color }}
+              />
+              <span className="text-muted-foreground text-[10px]">{c.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Stats bar */}
-      <div className="absolute bottom-3 left-3 z-20 flex items-center gap-3 rounded-md border bg-background/90 px-3 py-1.5 text-[10px] text-muted-foreground backdrop-blur">
+      <div className="absolute bottom-2.5 left-2.5 z-20 flex items-center gap-2 rounded-lg border bg-background/90 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
         <span>{stats.totalNodes} entities</span>
+        <span className="text-border">|</span>
         <span>{stats.totalEdges} relationships</span>
         {highlightedPath && (
-          <span className="flex items-center gap-1 text-primary">
+          <span className="flex items-center gap-1 text-primary font-medium">
             <ArrowRight className="h-3 w-3" />
-            Path: {highlightedPath.length} hops
+            {highlightedPath.length} hops
             <button onClick={clearPath} className="ml-1 text-destructive hover:underline">
               clear
             </button>
@@ -214,33 +274,17 @@ export function KnowledgeGraph() {
         )}
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-3 right-3 z-20 flex flex-wrap gap-1.5 rounded-md border bg-background/90 px-3 py-2 text-[10px] backdrop-blur">
-        {CLUSTERS.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => {
-              setSearchQuery(c.label);
-            }}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-muted"
-          >
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: c.color }}
-            />
-            <span className="text-muted-foreground">{c.label}</span>
-          </button>
-        ))}
-      </div>
-
       {/* SVG Canvas */}
       <svg
         ref={svgRef}
-        className="h-full w-full"
+        className="h-full w-full select-none touch-none"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onWheel={handleWheel}
         style={{ cursor: isPanning ? "grabbing" : "grab" }}
       >

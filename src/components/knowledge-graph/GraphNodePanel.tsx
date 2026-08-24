@@ -71,10 +71,15 @@ export function GraphNodePanel({
   };
 
   return (
-    <div className="absolute right-0 top-0 z-30 h-full w-80 border-l bg-card shadow-xl">
-      <div className="flex h-full flex-col">
+    <div className="absolute z-30 inset-x-0 bottom-0 max-h-[75vh] md:inset-x-auto md:right-0 md:top-0 md:bottom-0 md:max-h-full md:h-full md:w-80 flex flex-col rounded-t-2xl md:rounded-none border-t md:border-t-0 md:border-l bg-card shadow-2xl animate-in slide-in-from-bottom md:slide-in-from-right duration-200">
+      {/* Mobile Handle */}
+      <div className="md:hidden flex justify-center pt-2 pb-1">
+        <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+      </div>
+
+      <div className="flex h-full flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-start justify-between border-b p-4">
+        <div className="flex items-start justify-between border-b p-3 sm:p-4">
           <div className="space-y-1">
             <h3 className="text-sm font-bold text-foreground">{node.label}</h3>
             <p className="text-[10px] font-mono text-muted-foreground">{node.entity}</p>
