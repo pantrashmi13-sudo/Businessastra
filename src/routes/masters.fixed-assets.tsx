@@ -9,8 +9,8 @@ function FixedAssetsPage() {
 
   return (
     <MasterCrudPage
-      title="Fixed Assets"
-      description="Capitalized assets like machinery, furniture, IT equipment."
+      title="Asset Master"
+      description="Manage fixed assets with depreciation tracking."
       table="fixed_assets"
       schema={fixedAssetSchema}
       fields={fixedAssetFields}
@@ -25,6 +25,8 @@ function FixedAssetsPage() {
         { key: "purchase_cost", label: "Purchase Cost" },
         { key: "total_cost", label: "Total Cost" },
         { key: "depreciation_method", label: "Depreciation" },
+        { key: "useful_life", label: "Useful Life", render: (v) => v ? `${v} yrs` : "—" },
+        { key: "residual_value", label: "Residual Value" },
         { key: "status", label: "Status" },
       ]}
     />

@@ -298,6 +298,7 @@ export function SalesInvoice({
                 <th className="text-left py-2 px-2 w-[60px] text-xs font-semibold">UOM</th>
                 <th className="text-right py-2 px-2 w-[80px] text-xs font-semibold">Qty</th>
                 <th className="text-right py-2 px-2 w-[100px] text-xs font-semibold">Rate</th>
+                {isVat && <th className="text-right py-2 px-2 w-[70px] text-xs font-semibold">VAT %</th>}
                 <th className="text-right py-2 px-2 w-[110px] text-xs font-semibold">Amount</th>
               </tr>
             </thead>
@@ -344,6 +345,26 @@ export function SalesInvoice({
                         />
                       )}
                     </td>
+                    {isVat && (
+                      <td className="py-2 px-2 text-right">
+                        {readOnly ? (
+                          <span className="font-mono text-xs">{line.vat_rate || 0}%</span>
+                        ) : (
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            max="100"
+                            className="h-7 w-[60px] text-right text-xs font-mono ml-auto"
+                            value={line.vat_rate || ""}
+                            onChange={(e) =>
+                              updateLine(i, { vat_rate: toNumber(e.target.value, 0) })
+                            }
+                            placeholder="0"
+                          />
+                        )}
+                      </td>
+                    )}
                     <td className="py-2 px-2 text-right font-semibold font-mono">
                       {inr(amount)}
                     </td>

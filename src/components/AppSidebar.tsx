@@ -14,6 +14,11 @@ import {
   Banknote,
   Wallet,
   PackageMinus,
+  RotateCcw,
+  Undo2,
+  ListTree,
+  ScrollText,
+  ClipboardList,
 } from "lucide-react";
 
 import {
@@ -34,18 +39,22 @@ import { toast } from "sonner";
 
 const masters = [
   { title: "Companies", url: "/masters/companies", icon: Building2 },
+  { title: "Warehouses", url: "/masters/warehouses", icon: Building2 },
   { title: "Customers", url: "/masters/customers", icon: Users },
   { title: "Vendors", url: "/masters/vendors", icon: Truck },
   { title: "Inventory", url: "/masters/items", icon: Package },
   { title: "Fixed Assets", url: "/masters/fixed-assets", icon: Landmark },
+  { title: "Assets Register", url: "/fixed-assets-register", icon: Calculator },
 ];
 
 const bills = [
   { title: "All Bills", url: "/bills", icon: FileText },
   { title: "New Bill", url: "/bills/new", icon: Receipt },
+  { title: "Purchase Returns", url: "/purchase-returns", icon: RotateCcw },
   { title: "Delivery Challans", url: "/challans", icon: Truck },
   { title: "Consumptions", url: "/consumptions", icon: PackageMinus },
   { title: "Sales Invoices", url: "/sales-invoices", icon: Receipt },
+  { title: "Sales Returns", url: "/sales-returns", icon: Undo2 },
   { title: "VAT Register", url: "/vat-register", icon: Calculator },
 ];
 
@@ -55,6 +64,12 @@ const receiptPayment = [
 
 const cashBank = [
   { title: "Cash & Bank", url: "/cash-bank", icon: Wallet },
+];
+
+const accounting = [
+  { title: "Chart of Accounts", url: "/coa", icon: ListTree },
+  { title: "Journal Entries", url: "/journal-entries", icon: ScrollText },
+  { title: "General Ledger", url: "/general-ledger", icon: ClipboardList },
 ];
 
 export function AppSidebar() {
@@ -160,6 +175,24 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {cashBank.map((m) => (
+                <SidebarMenuItem key={m.url}>
+                  <SidebarMenuButton asChild isActive={isActive(m.url)}>
+                    <Link to={m.url}>
+                      <m.icon />
+                      <span>{m.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Accounting</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {accounting.map((m) => (
                 <SidebarMenuItem key={m.url}>
                   <SidebarMenuButton asChild isActive={isActive(m.url)}>
                     <Link to={m.url}>

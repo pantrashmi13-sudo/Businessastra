@@ -36,6 +36,8 @@ import {
 import { formatDate, adToBsInput, bsInputToAd, type DateFormat } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { inr, toNumber } from "@/lib/format";
+import { nextDocNumber } from "@/lib/voucher-number";
+import { useCompany } from "@/hooks/use-company";
 
 type PayeeType = "vendor" | "other";
 type AdjustmentType = "bill_wise" | "simple";
@@ -95,6 +97,10 @@ export function PaymentVoucherForm({
   const [payeeName, setPayeeName] = useState(
     (initial?.payee_name as string) || ""
   );
+  const [directAccountId, setDirectAccountId] = useState<string | null>(
+    (initial?.direct_account_id as string) || null
+  );
+  const { company } = useCompany();
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(
     (initial?.adjustment_type as AdjustmentType) || "simple"
   );
@@ -155,6 +161,33 @@ export function PaymentVoucherForm({
         raw: v,
       })),
     [vendorsQuery.data]
+  );
+
+  // Fetch accounts for direct account selection (for "Other" payee type)
+  const accountsQuery = useQuery({
+    queryKey: ["accounts", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("id, name, code, coa:chart_of_accounts(name, account_code)")
+        .eq("company_id", company!.id)
+        .eq("is_active", true)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string; code: string | null; coa: { name: string; account_code: string } | null }[];
+    },
+  });
+
+  const accountOptions: EntityOption[] = useMemo(
+    () =>
+      (accountsQuery.data ?? []).map((a) => ({
+        id: a.id,
+        label: a.name,
+        sublabel: a.coa ? `${a.coa.account_code} — ${a.coa.name}` : undefined,
+        raw: a,
+      })),
+    [accountsQuery.data]
   );
 
   // Fetch petty cash accounts
@@ -382,23 +415,8 @@ export function PaymentVoucherForm({
         throw new Error("No active company found. Please configure a company in Masters -> Companies first.");
       }
 
-      // Generate voucher number
-      const { data: existing } = await supabase
-        .from("payment_vouchers")
-        .select("voucher_number")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      let nextNum = 1;
-      if (existing && existing.length > 0) {
-        const lastNum = parseInt(
-          existing[0].voucher_number.replace("PV-", ""),
-          10
-        );
-        if (!isNaN(lastNum)) nextNum = lastNum + 1;
-      }
-      const voucherNumber = `PV-${String(nextNum).padStart(4, "0")}`;
+      // Generate voucher number using financial year
+      const voucherNumber = await nextDocNumber("PV", "payment_vouchers", "voucher_number", companyId);
 
       // Insert payment voucher
       const { data: voucher, error: voucherErr } = await supabase
@@ -409,6 +427,7 @@ export function PaymentVoucherForm({
           payee_type: payeeType,
           vendor_id: payeeType === "vendor" ? vendorId : null,
           payee_name: payeeType === "other" ? payeeName : null,
+          direct_account_id: payeeType === "other" ? (directAccountId || null) : null,
           payment_mode: paymentMode,
           reference_number: referenceNumber || null,
           payment_date: paymentDate,
@@ -449,6 +468,30 @@ export function PaymentVoucherForm({
             .update({ current_balance: Number(bank.current_balance) - totalAmount })
             .eq("id", paidFromId);
         }
+      }
+
+      // Create ledger entry in petty_cash_ledger or bank_ledger
+      const description = `Payment ${voucher.voucher_number} to ${payeeType === "vendor" ? vendorOptions.find((o) => o.id === vendorId)?.label ?? "vendor" : payeeName || "party"}`;
+      if (paidFromType === "petty_cash" && paidFromId) {
+        await supabase.from("petty_cash_ledger" as any).insert({
+          petty_cash_id: paidFromId,
+          date: paymentDate,
+          description,
+          debit: 0,
+          credit: totalAmount,
+          reference_type: "payment_voucher",
+          reference_id: voucher.id,
+        });
+      } else if (paidFromType === "bank" && paidFromId) {
+        await supabase.from("bank_ledger" as any).insert({
+          bank_account_id: paidFromId,
+          date: paymentDate,
+          description,
+          debit: 0,
+          credit: totalAmount,
+          reference_type: "payment_voucher",
+          reference_id: voucher.id,
+        });
       }
 
       // Insert bill allocations if bill-wise
@@ -565,14 +608,29 @@ export function PaymentVoucherForm({
                 />
               </div>
             ) : (
-              <div className="space-y-2">
-                <Label>Payee Name</Label>
-                <Input
-                  value={payeeName}
-                  onChange={(e) => setPayeeName(e.target.value)}
-                  placeholder="Enter payee name"
-                  disabled={viewOnly}
-                />
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Payee Name</Label>
+                  <Input
+                    value={payeeName}
+                    onChange={(e) => setPayeeName(e.target.value)}
+                    placeholder="Enter payee name"
+                    disabled={viewOnly}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Link to Account (optional)</Label>
+                  <EntityCombobox
+                    value={directAccountId}
+                    onChange={(id) => setDirectAccountId(id)}
+                    options={accountOptions}
+                    placeholder="Search accounts…"
+                    disabled={viewOnly}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Select the general ledger account to debit for this payment (e.g. Rent Expenses, Admin Expenses).
+                  </p>
+                </div>
               </div>
             )}
           </CardContent>

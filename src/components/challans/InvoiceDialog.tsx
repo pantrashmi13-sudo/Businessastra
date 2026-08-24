@@ -20,6 +20,7 @@ import { inr } from "@/lib/format";
 import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { useCompany, type CompanyRecord } from "@/hooks/use-company";
+import { nextDocNumber } from "@/lib/voucher-number";
 import {
   SalesInvoice,
   type InvoiceLineData,
@@ -195,25 +196,11 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
   // ── Invoice number generation ──────────────────────────────────
 
   const generateInvoiceNumber = async (): Promise<string> => {
-    const now = new Date();
-    const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const prefix = `SI-${ym}-`;
-
     try {
-      const { data, error } = await supabase
-        .from("sales_invoices" as any)
-        .select("invoice_number")
-        .like("invoice_number", `${prefix}%`)
-        .order("invoice_number", { ascending: false })
-        .limit(1);
-
-      if (error) throw error;
-      const last = (data as any[])?.[0]?.invoice_number;
-      const seq = last ? parseInt(last.split("-")[2]) + 1 : 1;
-      return `${prefix}${String(seq).padStart(3, "0")}`;
+      return await nextDocNumber("SI", "sales_invoices", "invoice_number", company.id);
     } catch (err) {
-      console.error("Invoice number query failed, using timestamp fallback:", err);
-      return `${prefix}${String(Math.floor(Math.random() * 900) + 100)}`;
+      console.error("Invoice number generation failed:", err);
+      throw new Error("Failed to generate invoice number. Please try again.");
     }
   };
 

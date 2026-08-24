@@ -132,6 +132,19 @@ export function ConsumptionForm({ consumptionId, initial }: ConsumptionFormProps
     },
   });
 
+  // Load stock ledger entries as fallback for lot data
+  const stockLedger = useQuery({
+    queryKey: ["stock_ledger", "consumption-lots"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("stock_ledger")
+        .select("id, item_id, lot_number, expiry_date, quantity, unit_rate, landing_unit_cost, created_at, movement_type")
+        .order("created_at", { ascending: false });
+      if (error) return [];
+      return (data as Array<Record<string, unknown>>) ?? [];
+    },
+  });
+
   // Load previous consumption lines to subtract
   const consumptionLines = useQuery({
     queryKey: ["consumption_lines", "lots"],
@@ -178,6 +191,33 @@ export function ConsumptionForm({ consumptionId, initial }: ConsumptionFormProps
           qty: Number(bl.quantity || 0),
           per_unit: Number(bl.per_unit || 0),
           landing_cost: landingCost,
+        });
+      }
+    }
+
+    // Also check stock_ledger for inward entries (fallback for lots not in bill_lines)
+    const matchingLedgerEntries = (stockLedger.data ?? []).filter(
+      (s) => s.item_id === itemId && s.movement_type === "inward"
+    );
+    for (const sl of matchingLedgerEntries) {
+      const rawLot = (sl.lot_number as string)?.trim();
+      if (!rawLot) continue;
+      
+      const lotKey = rawLot.toUpperCase();
+      const existing = lotsMap.get(lotKey);
+      const qty = Number(sl.quantity || 0);
+      
+      if (existing) {
+        // Already have this lot from bill_lines, skip to avoid double counting
+      } else if (qty > 0) {
+        // Only add if not already in map (stock_ledger might have entries without bill_lines)
+        lotsMap.set(lotKey, {
+          lot_number: rawLot,
+          expiry_date: (sl.expiry_date as string) || "",
+          created_at: (sl.created_at as string) || new Date().toISOString(),
+          qty: qty,
+          per_unit: Number(sl.unit_rate || sl.landing_unit_cost || 0),
+          landing_cost: Number(sl.landing_unit_cost || 0),
         });
       }
     }

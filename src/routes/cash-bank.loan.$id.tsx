@@ -20,7 +20,7 @@ function LoanViewPage() {
     queryKey: ["loan", id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("loans")
+        .from("loans" as any)
         .select("*")
         .eq("id", id)
         .single();
@@ -50,17 +50,17 @@ function LoanViewPage() {
     <>
       <PageHeader
         title={`Loan: ${loan.loan_name}`}
-        description={`Outstanding: ${inr(loan.loan_outstanding)}`}
+        description={`Principal: ${inr(loan.principal_amount)} | Outstanding: ${inr(loan.loan_outstanding)}`}
       />
       <div className="space-y-6 p-6">
         <LoanForm initial={loan} viewOnly />
 
         <Card>
           <CardHeader>
-            <CardTitle>Loan Ledger</CardTitle>
+            <CardTitle>Statement</CardTitle>
           </CardHeader>
           <CardContent>
-            <LoanLedger loanId={id} />
+            <LoanLedger loanId={id} openingOutstanding={loan.loan_outstanding} />
           </CardContent>
         </Card>
       </div>

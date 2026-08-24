@@ -61,6 +61,44 @@ function ReceiptPaymentPage() {
   const [tab, setTab] = useState<"all" | "payment" | "receipt">("all");
   const dateFormat = useDateFormat();
 
+  // Fetch account names for "Received In" / "Paid From" columns
+  const pettyCashQuery = useQuery({
+    queryKey: ["petty-cash-accounts", "list"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("petty_cash_accounts" as any)
+        .select("id, name")
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; name: string }[];
+    },
+  });
+
+  const bankAccountsQuery = useQuery({
+    queryKey: ["bank-accounts", "list"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bank_accounts" as any)
+        .select("id, bank_name, account_number")
+        .order("bank_name");
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; bank_name: string; account_number: string }[];
+    },
+  });
+
+  const getAccountName = (type: string | null, id: string | null) => {
+    if (!type || !id) return "—";
+    if (type === "petty_cash") {
+      const acc = pettyCashQuery.data?.find((a) => a.id === id);
+      return acc ? `Petty Cash - ${acc.name}` : "—";
+    }
+    if (type === "bank") {
+      const acc = bankAccountsQuery.data?.find((a) => a.id === id);
+      return acc ? `Bank - ${acc.bank_name}` : "—";
+    }
+    return "—";
+  };
+
   const paymentVouchers = useQuery({
     queryKey: ["payment-vouchers", "list"],
     queryFn: async () => {
@@ -81,6 +119,8 @@ function ReceiptPaymentPage() {
         reference_number: v.reference_number,
         amount: Number(v.total_amount ?? 0),
         status: v.status,
+        paid_from_type: v.paid_from_type as string | null,
+        paid_from_id: v.paid_from_id as string | null,
       }));
     },
   });
@@ -105,6 +145,8 @@ function ReceiptPaymentPage() {
         reference_number: v.reference_number,
         amount: Number(v.total_amount ?? 0),
         status: v.status,
+        received_in_type: v.received_in_type as string | null,
+        received_in_id: v.received_in_id as string | null,
       }));
     },
   });
@@ -202,6 +244,7 @@ function ReceiptPaymentPage() {
                 <TableHead className="w-28">Date</TableHead>
                 <TableHead>Party</TableHead>
                 <TableHead className="w-32">Mode</TableHead>
+                <TableHead className="w-48">{tab === "receipt" ? "Received In" : tab === "payment" ? "Paid From" : "Account"}</TableHead>
                 <TableHead className="w-28">Ref. No.</TableHead>
                 <TableHead className="w-36 text-right">Amount</TableHead>
                 <TableHead className="w-20">Status</TableHead>
@@ -211,13 +254,13 @@ function ReceiptPaymentPage() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="text-center text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : allRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
                     <FileText className="mx-auto mb-2 h-8 w-8 opacity-50" />
                     No vouchers found.
                   </TableCell>
@@ -244,11 +287,16 @@ function ReceiptPaymentPage() {
                     <TableCell className="text-muted-foreground">
                       {formatDate(r.date, dateFormat)}
                     </TableCell>
-                    <TableCell>{r.party_name}</TableCell>
+                    <TableCell className="max-w-[180px] truncate" title={r.party_name}>{r.party_name}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="text-xs">
                         {MODES[r.mode] || r.mode}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-[180px] truncate text-muted-foreground text-xs">
+                      {r.type === "receipt"
+                        ? getAccountName(r.received_in_type, r.received_in_id)
+                        : getAccountName(r.paid_from_type, r.paid_from_id)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {r.reference_number || "—"}

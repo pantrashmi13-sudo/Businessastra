@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { FileText } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -16,9 +17,11 @@ import {
 import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { inr } from "@/lib/format";
+import { toast } from "sonner";
 
 interface PettyCashLedgerProps {
   pettyCashId: string;
+  openingBalance?: number;
 }
 
 type LedgerEntry = {
@@ -29,24 +32,63 @@ type LedgerEntry = {
   credit: number;
   reference_type: string | null;
   reference_id: string | null;
+  reconciled: boolean;
 };
 
-export function PettyCashLedger({ pettyCashId }: PettyCashLedgerProps) {
+type PettyCashAccount = {
+  id: string;
+  opening_balance: number;
+  current_balance: number;
+};
+
+export function PettyCashLedger({ pettyCashId, openingBalance: propOpeningBalance }: PettyCashLedgerProps) {
   const [q, setQ] = useState("");
   const dateFormat = useDateFormat();
+  const qc = useQueryClient();
+
+  const { data: account } = useQuery({
+    queryKey: ["petty-cash-account", pettyCashId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("petty_cash_accounts" as any)
+        .select("id, opening_balance, current_balance")
+        .eq("id", pettyCashId)
+        .single();
+      if (error) throw error;
+      return data as unknown as PettyCashAccount;
+    },
+    enabled: !!pettyCashId,
+  });
+
+  const openingBalance = propOpeningBalance ?? Number(account?.opening_balance ?? 0);
 
   const { data: entries, isLoading } = useQuery({
     queryKey: ["petty-cash-ledger", pettyCashId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("petty_cash_ledger")
+        .from("petty_cash_ledger" as any)
         .select("*")
         .eq("petty_cash_id", pettyCashId)
-        .order("date", { ascending: false });
+        .order("date", { ascending: true })
+        .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as LedgerEntry[];
+      return (data ?? []) as unknown as LedgerEntry[];
     },
     enabled: !!pettyCashId,
+  });
+
+  const toggleReconciled = useMutation({
+    mutationFn: async ({ id, reconciled }: { id: string; reconciled: boolean }) => {
+      const { error } = await supabase
+        .from("petty_cash_ledger" as any)
+        .update({ reconciled })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["petty-cash-ledger", pettyCashId] });
+    },
+    onError: (e) => toast.error((e as Error).message),
   });
 
   const filteredEntries = useMemo(() => {
@@ -62,7 +104,17 @@ export function PettyCashLedger({ pettyCashId }: PettyCashLedgerProps) {
 
   const totalDebit = filteredEntries.reduce((s, e) => s + Number(e.debit), 0);
   const totalCredit = filteredEntries.reduce((s, e) => s + Number(e.credit), 0);
-  const balance = totalDebit - totalCredit;
+  const closingBalance = openingBalance + totalDebit - totalCredit;
+
+  const entriesWithBalance = useMemo(() => {
+    let running = openingBalance;
+    return filteredEntries.map((entry) => {
+      const debit = Number(entry.debit);
+      const credit = Number(entry.credit);
+      running = running + debit - credit;
+      return { ...entry, running_balance: running };
+    });
+  }, [filteredEntries, openingBalance]);
 
   return (
     <div className="space-y-4">
@@ -74,7 +126,7 @@ export function PettyCashLedger({ pettyCashId }: PettyCashLedgerProps) {
           className="max-w-sm"
         />
         <div className="ml-auto text-sm text-muted-foreground">
-          Balance: <span className="font-medium text-foreground">{inr(balance)}</span>
+          Closing: <span className="font-medium text-foreground">{inr(closingBalance)}</span>
         </div>
       </div>
 
@@ -84,47 +136,75 @@ export function PettyCashLedger({ pettyCashId }: PettyCashLedgerProps) {
             <TableRow>
               <TableHead className="w-28">Date</TableHead>
               <TableHead>Description</TableHead>
-              <TableHead className="w-32">Reference</TableHead>
-              <TableHead className="w-32 text-right">Debit</TableHead>
-              <TableHead className="w-32 text-right">Credit</TableHead>
+              <TableHead className="w-28">Reference</TableHead>
+              <TableHead className="w-28 text-right">Debit</TableHead>
+              <TableHead className="w-28 text-right">Credit</TableHead>
+              <TableHead className="w-28 text-right">Balance</TableHead>
+              <TableHead className="w-20 text-center">Reconciled</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-muted-foreground">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : filteredEntries.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                   <FileText className="mx-auto mb-2 h-8 w-8 opacity-50" />
                   No ledger entries found.
                 </TableCell>
               </TableRow>
             ) : (
-              filteredEntries.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="text-muted-foreground">
-                    {formatDate(entry.date, dateFormat)}
-                  </TableCell>
-                  <TableCell>{entry.description}</TableCell>
-                  <TableCell>
-                    {entry.reference_type && (
-                      <Badge variant="outline" className="text-xs">
-                        {entry.reference_type}
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {Number(entry.debit) > 0 ? inr(entry.debit) : "—"}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {Number(entry.credit) > 0 ? inr(entry.credit) : "—"}
-                  </TableCell>
+              <>
+                <TableRow className="bg-muted/30">
+                  <TableCell colSpan={4} className="text-muted-foreground">Opening Balance</TableCell>
+                  <TableCell></TableCell>
+                  <TableCell className="text-right font-medium tabular-nums">{inr(openingBalance)}</TableCell>
+                  <TableCell></TableCell>
                 </TableRow>
-              ))
+                {entriesWithBalance.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(entry.date, dateFormat)}
+                    </TableCell>
+                    <TableCell>{entry.description}</TableCell>
+                    <TableCell>
+                      {entry.reference_type && (
+                        <Badge variant="outline" className="text-xs">
+                          {entry.reference_type}
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {Number(entry.debit) > 0 ? inr(entry.debit) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {Number(entry.credit) > 0 ? inr(entry.credit) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {inr(entry.running_balance)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Checkbox
+                        checked={entry.reconciled}
+                        onCheckedChange={(checked) =>
+                          toggleReconciled.mutate({ id: entry.id, reconciled: !!checked })
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow className="bg-muted/30 font-semibold">
+                  <TableCell colSpan={3}>Closing Balance</TableCell>
+                  <TableCell className="text-right tabular-nums">{inr(totalDebit)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{inr(totalCredit)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{inr(closingBalance)}</TableCell>
+                  <TableCell></TableCell>
+                </TableRow>
+              </>
             )}
           </TableBody>
         </Table>

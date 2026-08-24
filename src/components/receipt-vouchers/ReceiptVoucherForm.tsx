@@ -36,6 +36,8 @@ import {
 import { adToBsInput, bsInputToAd } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { inr, toNumber } from "@/lib/format";
+import { nextDocNumber } from "@/lib/voucher-number";
+import { useCompany } from "@/hooks/use-company";
 
 type PayerType = "customer" | "other";
 type AdjustmentType = "invoice_wise" | "simple";
@@ -92,6 +94,10 @@ export function ReceiptVoucherForm({
   const [payerName, setPayerName] = useState(
     (initial?.payer_name as string) || ""
   );
+  const [directAccountId, setDirectAccountId] = useState<string | null>(
+    (initial?.direct_account_id as string) || null
+  );
+  const { company } = useCompany();
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>(
     (initial?.adjustment_type as AdjustmentType) || "simple"
   );
@@ -148,6 +154,33 @@ export function ReceiptVoucherForm({
         raw: c,
       })),
     [customersQuery.data]
+  );
+
+  // Fetch accounts for direct account selection (for "Other" payer type)
+  const accountsQuery = useQuery({
+    queryKey: ["accounts", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("id, name, code, coa:chart_of_accounts(name, account_code)")
+        .eq("company_id", company!.id)
+        .eq("is_active", true)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string; code: string | null; coa: { name: string; account_code: string } | null }[];
+    },
+  });
+
+  const accountOptions: EntityOption[] = useMemo(
+    () =>
+      (accountsQuery.data ?? []).map((a) => ({
+        id: a.id,
+        label: a.name,
+        sublabel: a.coa ? `${a.coa.account_code} — ${a.coa.name}` : undefined,
+        raw: a,
+      })),
+    [accountsQuery.data]
   );
 
   // Fetch petty cash accounts
@@ -354,38 +387,23 @@ export function ReceiptVoucherForm({
         throw new Error("No active company found. Please configure a company in Masters -> Companies first.");
       }
 
-      // Generate voucher number with retry on duplicate constraint
-      const now = new Date();
-      const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-      const prefix = `RV-${ym}-`;
-
-      const { data: existing } = await supabase
-        .from("receipt_vouchers" as any)
-        .select("voucher_number")
-        .like("voucher_number", `${prefix}%`)
-        .order("voucher_number", { ascending: false })
-        .limit(1);
-
-      let nextNum = 1;
-      if (existing && existing.length > 0) {
-        const parts = existing[0].voucher_number.split("-");
-        const lastNum = parseInt(parts[parts.length - 1], 10);
-        if (!isNaN(lastNum)) nextNum = lastNum + 1;
-      }
+      // Generate voucher number using financial year
+      const voucherNumber = await nextDocNumber("RV", "receipt_vouchers", "voucher_number", companyId);
 
       // Retry loop: on duplicate key, increment and retry (up to 10 times)
       let voucher: any = null;
       let voucherErr: any = null;
       for (let attempt = 0; attempt < 10; attempt++) {
-        const voucherNumber = `${prefix}${String(nextNum + attempt).padStart(3, "0")}`;
+        const tryNumber = attempt === 0 ? voucherNumber : `${voucherNumber.slice(0, -4)}${String(parseInt(voucherNumber.slice(-4)) + attempt).padStart(4, "0")}`;
         const result = await supabase
           .from("receipt_vouchers" as any)
           .insert({
             company_id: companyId,
-            voucher_number: voucherNumber,
+            voucher_number: tryNumber,
             payer_type: payerType,
             customer_id: payerType === "customer" ? customerId : null,
             payer_name: payerType === "other" ? payerName : null,
+            direct_account_id: payerType === "other" ? (directAccountId || null) : null,
             receipt_mode: receiptMode,
             reference_number: referenceNumber || null,
             receipt_date: receiptDate,
@@ -448,6 +466,30 @@ export function ReceiptVoucherForm({
             .update({ current_balance: Number(bank.current_balance) + totalAmount })
             .eq("id", receivedInId);
         }
+      }
+
+      // Create ledger entry in petty_cash_ledger or bank_ledger
+      const description = `Receipt ${voucher.voucher_number} from ${payerType === "customer" ? customerOptions.find((o) => o.id === customerId)?.label ?? "customer" : payerName || "party"}`;
+      if (receivedInType === "petty_cash" && receivedInId) {
+        await supabase.from("petty_cash_ledger" as any).insert({
+          petty_cash_id: receivedInId,
+          date: receiptDate,
+          description,
+          debit: totalAmount,
+          credit: 0,
+          reference_type: "receipt_voucher",
+          reference_id: voucher.id,
+        });
+      } else if (receivedInType === "bank" && receivedInId) {
+        await supabase.from("bank_ledger" as any).insert({
+          bank_account_id: receivedInId,
+          date: receiptDate,
+          description,
+          debit: totalAmount,
+          credit: 0,
+          reference_type: "receipt_voucher",
+          reference_id: voucher.id,
+        });
       }
 
       if (adjustmentType === "invoice_wise" && invoiceAllocations.length > 0) {
@@ -534,14 +576,29 @@ export function ReceiptVoucherForm({
                 />
               </div>
             ) : (
-              <div className="space-y-2">
-                <Label>Payer Name</Label>
-                <Input
-                  value={payerName}
-                  onChange={(e) => setPayerName(e.target.value)}
-                  placeholder="Enter payer name"
-                  disabled={viewOnly}
-                />
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Payer Name</Label>
+                  <Input
+                    value={payerName}
+                    onChange={(e) => setPayerName(e.target.value)}
+                    placeholder="Enter payer name"
+                    disabled={viewOnly}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Link to Account (optional)</Label>
+                  <EntityCombobox
+                    value={directAccountId}
+                    onChange={(id) => setDirectAccountId(id)}
+                    options={accountOptions}
+                    placeholder="Search accounts…"
+                    disabled={viewOnly}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Select the general ledger account that will be credited for this receipt (e.g. Other Income, Rent Income).
+                  </p>
+                </div>
               </div>
             )}
           </CardContent>

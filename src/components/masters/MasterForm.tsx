@@ -28,6 +28,107 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
+// ── Standalone Category Dialog ─────────────────────────────────────────────
+// Extracted as its own component so React gives it a stable identity and
+// never unmounts/remounts it on parent re-renders (which caused the
+// "shaking" / focus-loss bug when typing inside the dialog).
+interface CategoryDialogProps {
+  catVal: string;
+  onDone: (vals: { category: string; parentCategory: string; subParentCategory: string; subCategory: string }) => void;
+}
+function CategoryDialog({ catVal, onDone }: CategoryDialogProps) {
+  const [open, setOpen] = useState(false);
+  const [tempCategory, setTempCategory] = useState("");
+  const [tempParentCategory, setTempParentCategory] = useState("");
+  const [tempSubParentCategory, setTempSubParentCategory] = useState("");
+  const [tempSubCategory, setTempSubCategory] = useState("");
+
+  function handleOpen(nextOpen: boolean) {
+    if (nextOpen) {
+      setTempCategory(catVal);
+      setTempParentCategory("");
+      setTempSubParentCategory("");
+      setTempSubCategory("");
+    }
+    setOpen(nextOpen);
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Dialog open={open} onOpenChange={handleOpen}>
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-between text-left font-normal"
+          >
+            <span className={catVal ? "" : "text-muted-foreground"}>
+              {catVal || "Select Category"}
+            </span>
+            <span className="text-xs text-muted-foreground">Choose →</span>
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Category Hierarchy</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Category</Label>
+              <Input
+                placeholder="e.g., Electronics, Furniture"
+                value={tempCategory}
+                onChange={(e) => setTempCategory(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Parent Category</Label>
+              <Input
+                placeholder="e.g., Phones, Chairs"
+                value={tempParentCategory}
+                onChange={(e) => setTempParentCategory(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sub-Parent Category</Label>
+              <Input
+                placeholder="e.g., Smartphones, Office Chairs"
+                value={tempSubParentCategory}
+                onChange={(e) => setTempSubParentCategory(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sub-Category</Label>
+              <Input
+                placeholder="e.g., Android Phones, Ergonomic"
+                value={tempSubCategory}
+                onChange={(e) => setTempSubCategory(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => {
+                onDone({
+                  category: tempCategory,
+                  parentCategory: tempParentCategory,
+                  subParentCategory: tempSubParentCategory,
+                  subCategory: tempSubCategory,
+                });
+                setOpen(false);
+              }}
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface FieldDef {
   key: string;
   label: string;
@@ -70,7 +171,6 @@ export function MasterForm<S extends z.ZodTypeAny>({
     defaultValues: defaults as never,
   });
 
-  const [catDialogOpen, setCatDialogOpen] = useState(false);
   const [openingStockOpen, setOpeningStockOpen] = useState(false);
 
   // Opening stock temp states
@@ -373,71 +473,15 @@ export function MasterForm<S extends z.ZodTypeAny>({
                     );
                   })()
               ) : f.type === "category-group" ? (
-                (() => {
-                  const catVal = (form.watch("category") as string) ?? "";
-                  return (
-                    <div className="space-y-1.5">
-                      <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-full justify-between text-left font-normal"
-                          >
-                            <span className={catVal ? "" : "text-muted-foreground"}>
-                              {catVal || "Select Category"}
-                            </span>
-                            <span className="text-xs text-muted-foreground">Choose →</span>
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-md">
-                          <DialogHeader>
-                            <DialogTitle>Category Hierarchy</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-4 py-2">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Category</Label>
-                              <Input
-                                placeholder="e.g., Electronics, Furniture"
-                                value={catVal}
-                                onChange={(e) => form.setValue("category", e.target.value as never)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Parent Category</Label>
-                              <Input
-                                placeholder="e.g., Phones, Chairs"
-                                value={(form.watch("parent_category") as string) ?? ""}
-                                onChange={(e) => form.setValue("parent_category", e.target.value as never)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Sub-Parent Category</Label>
-                              <Input
-                                placeholder="e.g., Smartphones, Office Chairs"
-                                value={(form.watch("sub_parent_category") as string) ?? ""}
-                                onChange={(e) => form.setValue("sub_parent_category", e.target.value as never)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Sub-Category</Label>
-                              <Input
-                                placeholder="e.g., Android Phones, Ergonomic"
-                                value={(form.watch("sub_category") as string) ?? ""}
-                                onChange={(e) => form.setValue("sub_category", e.target.value as never)}
-                              />
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button type="button" onClick={() => setCatDialogOpen(false)}>
-                              Done
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-                  );
-                })()
+                <CategoryDialog
+                  catVal={(form.watch("category") as string) ?? ""}
+                  onDone={({ category, parentCategory, subParentCategory, subCategory }) => {
+                    form.setValue("category", category as never);
+                    form.setValue("parent_category", parentCategory as never);
+                    form.setValue("sub_parent_category", subParentCategory as never);
+                    form.setValue("sub_category", subCategory as never);
+                  }}
+                />
               ) : f.type === "opening-stock" ? (
                 <div className="space-y-1.5">
                   <Dialog open={openingStockOpen} onOpenChange={(open) => {

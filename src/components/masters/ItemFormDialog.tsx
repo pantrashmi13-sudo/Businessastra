@@ -1,8 +1,8 @@
-import { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +53,7 @@ export interface ItemFormDialogProps {
     hsn_code?: string;
     vat_rate?: number;
     per_unit?: number;
+    warehouse?: string;
   } | null;
   onSaved?: (row: Record<string, unknown>) => void;
 }
@@ -66,6 +67,15 @@ export function ItemFormDialog({
 }: ItemFormDialogProps) {
   const qc = useQueryClient();
 
+  const { data: warehouses } = useQuery({
+    queryKey: ["warehouses"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("warehouses").select("*").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const getInitialType = (): ItemType | null => {
     if (!initial) return null;
     return initial.is_service ? "service" : "item";
@@ -77,6 +87,22 @@ export function ItemFormDialog({
   const [tempQty, setTempQty] = useState(0);
   const [tempRate, setTempRate] = useState(0);
   const [tempVal, setTempVal] = useState(0);
+  const [warehouseOtherSelected, setWarehouseOtherSelected] = useState(false);
+  const [customWarehouse, setCustomWarehouse] = useState("");
+  const [tempCategory, setTempCategory] = useState("");
+  const [tempParentCategory, setTempParentCategory] = useState("");
+  const [tempSubParentCategory, setTempSubParentCategory] = useState("");
+  const [tempSubCategory, setTempSubCategory] = useState("");
+
+  const handleCatDialogOpenChange = React.useCallback((open: boolean) => {
+    setCatDialogOpen(open);
+    if (open) {
+      setTempCategory((form.getValues("category") as string) ?? "");
+      setTempParentCategory((form.getValues("parent_category") as string) ?? "");
+      setTempSubParentCategory((form.getValues("sub_parent_category") as string) ?? "");
+      setTempSubCategory((form.getValues("sub_category") as string) ?? "");
+    }
+  }, []);
 
   const buildDefaults = (): Partial<FormValues> => ({
     item_code: ((initial?.item_code ?? ocrPrefill?.item_code ?? "") as string),
@@ -91,7 +117,9 @@ export function ItemFormDialog({
     opening_qty: Number(initial?.opening_qty ?? 0),
     opening_rate: Number(initial?.opening_rate ?? 0),
     opening_value: Number(initial?.opening_value ?? 0),
-    warehouse: ((initial?.warehouse ?? "") as string),
+    warehouse: ((initial?.warehouse ?? ocrPrefill?.warehouse ?? "") as string),
+    warehouse_id: ((initial?.warehouse_id ?? "") as string),
+    rag_number: ((initial?.rag_number ?? "") as string),
     status: ((initial?.status ?? "Active") as string),
     category: ((initial?.category ?? "") as string),
     parent_category: ((initial?.parent_category ?? "") as string),
@@ -259,6 +287,8 @@ export function ItemFormDialog({
   const handleClose = () => {
     form.reset(buildDefaults());
     setSelectedType(getInitialType());
+    setWarehouseOtherSelected(false);
+    setCustomWarehouse("");
     onOpenChange(false);
   };
 
@@ -432,7 +462,10 @@ export function ItemFormDialog({
         {/* Category picker */}
         <div className="space-y-1.5">
           <Label className="text-xs font-medium text-muted-foreground">Category</Label>
-          <Dialog open={catDialogOpen} onOpenChange={setCatDialogOpen}>
+          <Dialog
+            open={catDialogOpen}
+            onOpenChange={handleCatDialogOpenChange}
+          >
             <button
               type="button"
               onClick={() => setCatDialogOpen(true)}
@@ -448,26 +481,50 @@ export function ItemFormDialog({
                 <DialogTitle>Category Hierarchy</DialogTitle>
               </DialogHeader>
               <div className="space-y-3 py-2">
-                {[
-                  { label: "Category", field: "category", placeholder: "e.g., Electronics" },
-                  { label: "Parent Category", field: "parent_category", placeholder: "e.g., Phones" },
-                  { label: "Sub-Parent Category", field: "sub_parent_category", placeholder: "e.g., Smartphones" },
-                  { label: "Sub-Category", field: "sub_category", placeholder: "e.g., Android" },
-                ].map(({ label, field, placeholder }) => (
-                  <div key={field} className="space-y-1">
-                    <Label className="text-xs">{label}</Label>
-                    <Input
-                      placeholder={placeholder}
-                      value={(form.watch(field as keyof FormValues) as string) ?? ""}
-                      onChange={(e) =>
-                        form.setValue(field as keyof FormValues, e.target.value as never)
-                      }
-                    />
-                  </div>
-                ))}
+                <div className="space-y-1">
+                  <Label className="text-xs">Category</Label>
+                  <Input
+                    placeholder="e.g., Electronics"
+                    value={tempCategory}
+                    onChange={(e) => setTempCategory(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Parent Category</Label>
+                  <Input
+                    placeholder="e.g., Phones"
+                    value={tempParentCategory}
+                    onChange={(e) => setTempParentCategory(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Sub-Parent Category</Label>
+                  <Input
+                    placeholder="e.g., Smartphones"
+                    value={tempSubParentCategory}
+                    onChange={(e) => setTempSubParentCategory(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Sub-Category</Label>
+                  <Input
+                    placeholder="e.g., Android"
+                    value={tempSubCategory}
+                    onChange={(e) => setTempSubCategory(e.target.value)}
+                  />
+                </div>
               </div>
               <DialogFooter>
-                <Button type="button" onClick={() => setCatDialogOpen(false)}>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    form.setValue("category", tempCategory as never);
+                    form.setValue("parent_category", tempParentCategory as never);
+                    form.setValue("sub_parent_category", tempSubParentCategory as never);
+                    form.setValue("sub_category", tempSubCategory as never);
+                    setCatDialogOpen(false);
+                  }}
+                >
                   Done
                 </Button>
               </DialogFooter>
@@ -629,13 +686,34 @@ export function ItemFormDialog({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <SelectField
-            label="Warehouse"
-            name="warehouse"
-            options={["Main Warehouse", "Store Room", "Office", "Site", "Other"]}
-            placeholder="Select warehouse"
-          />
+          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Warehouse</Label>
+            <Select
+              value={(form.watch("warehouse_id") as string) || (form.watch("warehouse") as string) || ""}
+              onValueChange={(v) => {
+                const wh = warehouses?.find((w: any) => w.id === v);
+                form.setValue("warehouse_id", v as never);
+                form.setValue("warehouse", (wh ? wh.name : "") as never);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select warehouse" />
+              </SelectTrigger>
+              <SelectContent>
+                {warehouses?.map((wh: any) => (
+                  <SelectItem key={wh.id} value={wh.id}>
+                    {wh.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {(form.watch("warehouse_id") || form.watch("warehouse")) && (
+            <Field label="RAG Number (Rack, Aisle, Grid)" name="rag_number" placeholder="e.g. Rack A, Row 2" />
+          )}
+
           <SelectField
             label="Status"
             name="status"

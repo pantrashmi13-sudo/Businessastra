@@ -47,6 +47,7 @@ import { formatDate, adToBsInput, bsInputToAd } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { BsDatePicker } from "@/components/ui/bs-date-picker";
 import { useCompany } from "@/hooks/use-company";
+import { nextDocNumber } from "@/lib/voucher-number";
 
 interface ChallanLine {
   id?: string;
@@ -58,8 +59,8 @@ interface ChallanLine {
   main_uom?: string;
   alt_uom?: string;
   alt_uom_conversion?: number;
-  total_stock?: number;    // total items.qty from master (base UOM)
-  available_qty?: number;  // selected lot's available qty (base UOM)
+  total_stock?: number; // total items.qty from master (base UOM)
+  available_qty?: number; // selected lot's available qty (base UOM)
   quantity: number;
   per_unit: number;
   lot_number: string;
@@ -70,6 +71,7 @@ interface ChallanLine {
   sub_parent_category?: string;
   sub_category?: string;
   warehouse?: string;
+  warehouse_id?: string;
   landing_cost?: number;
 }
 
@@ -119,9 +121,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   const [challanDate, setChallanDate] = useState<string>(
     (existing?.challan_date as string) ?? new Date().toISOString().slice(0, 10),
   );
-  const [poReference, setPoReference] = useState<string>(
-    (existing?.po_reference as string) ?? "",
-  );
+  const [poReference, setPoReference] = useState<string>((existing?.po_reference as string) ?? "");
   const [deliveryAddress, setDeliveryAddress] = useState<string>(
     (existing?.delivery_address as string) ?? "",
   );
@@ -132,6 +132,14 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     (existing?.driver_contact as string) ?? "",
   );
   const [notes, setNotes] = useState<string>((existing?.notes as string) ?? "");
+  const [warehouseId, setWarehouseId] = useState<string>((existing?.warehouse_id as string) ?? "");
+
+  // Auto-filter items to selected dispatch warehouse
+  useEffect(() => {
+    if (warehouseId) {
+      setFilterWarehouse(warehouseId);
+    }
+  }, [warehouseId]);
 
   const [lines, setLines] = useState<ChallanLine[]>(() => {
     if (initial?.lines?.length) {
@@ -156,10 +164,24 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   useEffect(() => {
     if (!isNew) return;
     if (challanNumber) return;
-    const d = new Date();
-    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-    setChallanNumber(`DC-${ym}-${Math.floor(Math.random() * 900 + 100)}`);
-  }, [isNew, challanNumber]);
+    if (!company?.id) return;
+
+    let cancelled = false;
+    nextDocNumber("DC", "delivery_challans", "challan_number", company.id)
+      .then((num) => {
+        if (!cancelled) setChallanNumber(num);
+      })
+      .catch((err) => {
+        console.error("Challan number generation failed:", err);
+        // Fallback: random number
+        const d = new Date();
+        const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+        if (!cancelled) setChallanNumber(`DC-${ym}-${Math.floor(Math.random() * 900 + 100)}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNew, challanNumber, company?.id]);
 
   // Load Customers Master query
   const customers = useQuery({
@@ -185,19 +207,46 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     },
   });
 
+  // Load warehouses from warehouses table
+  const warehouses = useQuery({
+    queryKey: ["warehouses", "list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("warehouses").select("*").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   // Load purchase bill lines query to extract lots per item (only from approved bills)
   const billLines = useQuery({
     queryKey: ["bill_lines", "lots"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bill_lines")
-        .select(`
+        .select(
+          `
           id, ref_id, lot_number, expiry_date, quantity, per_unit, landing_cost, created_at,
           bills!inner(status)
-        `)
+        `,
+        )
         .eq("bills.status", "approved")
         .order("created_at", { ascending: false });
       if (error) throw error;
+      return (data as Array<Record<string, unknown>>) ?? [];
+    },
+  });
+
+  // Load stock ledger entries as fallback for lot data
+  const stockLedger = useQuery({
+    queryKey: ["stock_ledger", "lots"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("stock_ledger")
+        .select(
+          "id, item_id, lot_number, expiry_date, quantity, unit_rate, landing_unit_cost, created_at, movement_type",
+        )
+        .order("created_at", { ascending: false });
+      if (error) return [];
       return (data as Array<Record<string, unknown>>) ?? [];
     },
   });
@@ -206,7 +255,18 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   const challanLines = useQuery({
     queryKey: ["delivery_challan_lines", "lots"],
     queryFn: async () => {
-      const { data, error } = await (supabase as unknown as { from: (t: string) => { select: (s: string) => { order: (c: string, o: { ascending: boolean }) => Promise<{ data: unknown[]; error: unknown }> } } })
+      const { data, error } = await (
+        supabase as unknown as {
+          from: (t: string) => {
+            select: (s: string) => {
+              order: (
+                c: string,
+                o: { ascending: boolean },
+              ) => Promise<{ data: unknown[]; error: unknown }>;
+            };
+          };
+        }
+      )
         .from("delivery_challan_lines")
         .select("id, ref_id, lot_number, quantity, uom, created_at")
         .order("created_at", { ascending: false });
@@ -218,33 +278,40 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   // Helper: get available lots for a selected item (inward − outward = net per lot)
   const getAvailableLotsForItem = (itemId: string | null) => {
     if (!itemId) return [];
-    const itemMaster = (items.data ?? []).find((i) => i.id === itemId) as Record<string, unknown> | undefined;
+    const itemMaster = (items.data ?? []).find((i) => i.id === itemId) as
+      | Record<string, unknown>
+      | undefined;
     if (!itemMaster) return [];
 
     const altUom = (itemMaster.alt_uom as string) || "";
     const altConv = Number(itemMaster.alt_uom_conversion || 0);
 
-    // Only get lots from approved bill_lines
     const matchingBillLines = (billLines.data ?? []).filter((b) => b.ref_id === itemId);
     const matchingChallanLines = (challanLines.data ?? []).filter((c) => c.ref_id === itemId);
 
     const lotsMap = new Map<
       string,
-      { lot_number: string; expiry_date: string; created_at: string; qty: number; per_unit: number; landing_cost: number }
+      {
+        lot_number: string;
+        expiry_date: string;
+        created_at: string;
+        qty: number;
+        per_unit: number;
+        landing_cost: number;
+      }
     >();
 
-    // 1. Process inward purchase bill lines (only from approved bills)
+    // 1. Process inward purchase bill lines (from approved bills)
     for (const bl of matchingBillLines) {
       const rawLot = (bl.lot_number as string)?.trim();
-      if (!rawLot) continue; // Skip if no lot number (should have been auto-generated)
-      
+      if (!rawLot) continue;
+
       const lotKey = rawLot.toUpperCase();
       const existing = lotsMap.get(lotKey);
       const landingCost = Number(bl.landing_cost || bl.per_unit || 0);
-      
+
       if (existing) {
         existing.qty += Number(bl.quantity || 0);
-        // Update landing cost if we have a better value
         if (landingCost > 0) existing.landing_cost = landingCost;
       } else {
         lotsMap.set(lotKey, {
@@ -258,11 +325,38 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
       }
     }
 
-    // 2. Subtract outward dispatch challan lines
+    // 2. Also check stock_ledger for inward entries (fallback for lots not in bill_lines)
+    const matchingLedgerEntries = (stockLedger.data ?? []).filter(
+      (s) => s.item_id === itemId && s.movement_type === "inward",
+    );
+    for (const sl of matchingLedgerEntries) {
+      const rawLot = (sl.lot_number as string)?.trim();
+      if (!rawLot) continue;
+
+      const lotKey = rawLot.toUpperCase();
+      const existing = lotsMap.get(lotKey);
+      const qty = Number(sl.quantity || 0);
+
+      if (existing) {
+        // Already have this lot from bill_lines, skip to avoid double counting
+      } else if (qty > 0) {
+        // Only add if not already in map (stock_ledger might have entries without bill_lines)
+        lotsMap.set(lotKey, {
+          lot_number: rawLot,
+          expiry_date: (sl.expiry_date as string) || "",
+          created_at: (sl.created_at as string) || new Date().toISOString(),
+          qty: qty,
+          per_unit: Number(sl.unit_rate || sl.landing_unit_cost || itemMaster.default_rate || 0),
+          landing_cost: Number(sl.landing_unit_cost || 0),
+        });
+      }
+    }
+
+    // 3. Subtract outward dispatch challan lines
     for (const cl of matchingChallanLines) {
       const rawLot = (cl.lot_number as string)?.trim();
       if (!rawLot) continue;
-      
+
       const lotKey = rawLot.toUpperCase();
       let dispatchQty = Number(cl.quantity || 0);
 
@@ -288,26 +382,24 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
       (customers.data ?? []).map((c: Record<string, unknown>) => ({
         id: c.id as string,
         label: c.name as string,
-        sublabel: [(c.vat_number as string), (c.phone as string), (c.city as string)].filter(Boolean).join(" · "),
+        sublabel: [c.vat_number as string, c.phone as string, c.city as string]
+          .filter(Boolean)
+          .join(" · "),
         raw: c,
       })),
     [customers.data],
   );
 
-  // All unique warehouses from inventory items
+  // All warehouses from warehouses table
   const allWarehouses = useMemo(() => {
-    const whs = new Set<string>();
-    (items.data ?? []).forEach((i: Record<string, unknown>) => {
-      if (i.warehouse) whs.add(i.warehouse as string);
-    });
-    return Array.from(whs).sort();
-  }, [items.data]);
+    return (warehouses.data ?? []).map((w: any) => ({ id: w.id, name: w.name }));
+  }, [warehouses.data]);
 
   // All unique categories from inventory items (scoped to selected warehouse)
   const allCategories = useMemo(() => {
     const cats = new Set<string>();
     (items.data ?? []).forEach((i: Record<string, unknown>) => {
-      if (filterWarehouse !== "all" && (i.warehouse as string) !== filterWarehouse) return;
+      if (filterWarehouse !== "all" && (i.warehouse_id as string) !== filterWarehouse) return;
       if (i.category) cats.add(i.category as string);
     });
     return Array.from(cats).sort();
@@ -318,27 +410,32 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     () =>
       (items.data ?? [])
         .filter((i: Record<string, unknown>) => {
-          const whMatch = filterWarehouse === "all" || (i.warehouse as string) === filterWarehouse;
+          const whMatch =
+            filterWarehouse === "all" || (i.warehouse_id as string) === filterWarehouse;
           const catMatch = filterCategory === "all" || (i.category as string) === filterCategory;
           return whMatch && catMatch;
         })
         .map((i: Record<string, unknown>) => {
-          const catParts = [
-            i.category,
-            i.parent_category,
-            i.sub_parent_category,
-            i.sub_category,
-          ].filter(Boolean).join(" › ");
-          const wh = i.warehouse ? `📦 ${i.warehouse}` : "";
+          const catParts = [i.category, i.parent_category, i.sub_parent_category, i.sub_category]
+            .filter(Boolean)
+            .join(" › ");
+          const whName = allWarehouses.find((w) => w.id === i.warehouse_id)?.name || "";
+          const wh = whName ? `\u{1F4E6} ${whName}` : "";
           return {
             id: i.id as string,
             label: `${i.item_name} (Stock: ${num(Number(i.qty || 0))} ${i.uom || "NOS"})`,
-            sublabel: [wh, i.item_code as string, catParts, `Available: ${num(Number(i.qty || 0))} ${i.uom || "NOS"}`]
-              .filter(Boolean).join(" · "),
+            sublabel: [
+              wh,
+              i.item_code as string,
+              catParts,
+              `Available: ${num(Number(i.qty || 0))} ${i.uom || "NOS"}`,
+            ]
+              .filter(Boolean)
+              .join(" · "),
             raw: i,
           };
         }),
-    [items.data, filterWarehouse, filterCategory],
+    [items.data, filterWarehouse, filterCategory, allWarehouses],
   );
 
   // Update customer row & auto-fill delivery address when selected
@@ -356,7 +453,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
 
   // Total Challan Amount
   const totalAmount = useMemo(() => {
-    return lines.reduce((acc, l) => acc + (Number(l.quantity || 0) * Number(l.per_unit || 0)), 0);
+    return lines.reduce((acc, l) => acc + Number(l.quantity || 0) * Number(l.per_unit || 0), 0);
   }, [lines]);
 
   // Line item handlers
@@ -365,14 +462,19 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   };
   const addLine = () => setLines((prev) => [...prev, emptyLine(prev.length + 1)]);
   const removeLine = (i: number) =>
-    setLines((prev) => prev.filter((_, idx) => idx !== i).map((l, idx) => ({ ...l, sno: idx + 1 })));
+    setLines((prev) =>
+      prev.filter((_, idx) => idx !== i).map((l, idx) => ({ ...l, sno: idx + 1 })),
+    );
 
   // Calculate Item Age = difference from system entry date (created_at) to today
   const calculateAge = (createdAtStr?: string) => {
     if (!createdAtStr) return null;
     const createdDate = new Date(createdAtStr);
     const today = new Date();
-    const ageDays = Math.max(0, Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 3600 * 24)));
+    const ageDays = Math.max(
+      0,
+      Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 3600 * 24)),
+    );
     return ageDays;
   };
 
@@ -393,18 +495,24 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
         if (currentItem) {
           const currentStock = Number(currentItem.qty || 0);
           const isAlt = l.alt_uom && l.uom === l.alt_uom && Number(l.alt_uom_conversion || 0) > 0;
-          const reqBaseQty = isAlt ? Number(l.quantity || 0) / Number(l.alt_uom_conversion) : Number(l.quantity || 0);
+          const reqBaseQty = isAlt
+            ? Number(l.quantity || 0) / Number(l.alt_uom_conversion)
+            : Number(l.quantity || 0);
 
           if (reqBaseQty > currentStock) {
-            const availInSelUom = isAlt ? currentStock * Number(l.alt_uom_conversion) : currentStock;
+            const availInSelUom = isAlt
+              ? currentStock * Number(l.alt_uom_conversion)
+              : currentStock;
             throw new Error(
-              `Cannot dispatch line #${l.sno} (${l.name}): Dispatched quantity (${l.quantity} ${l.uom}) exceeds available stock (${num(availInSelUom)} ${l.uom}).`
+              `Cannot dispatch line #${l.sno} (${l.name}): Dispatched quantity (${l.quantity} ${l.uom}) exceeds available stock (${num(availInSelUom)} ${l.uom}).`,
             );
           }
         }
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       const payload: Record<string, unknown> = {
         customer_id: customerId,
         company_id: null,
@@ -418,13 +526,20 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
         status: "dispatched",
         notes: notes || null,
         dispatched_at: new Date().toISOString(),
+        warehouse_id: warehouseId || null,
       };
 
       let id = challanId;
       if (id) {
-        const { error } = await supabase.from("delivery_challans" as any).update(payload as never).eq("id", id);
+        const { error } = await supabase
+          .from("delivery_challans" as any)
+          .update(payload as never)
+          .eq("id", id);
         if (error) throw error;
-        await supabase.from("delivery_challan_lines" as any).delete().eq("challan_id", id);
+        await supabase
+          .from("delivery_challan_lines" as any)
+          .delete()
+          .eq("challan_id", id);
       } else {
         const { data, error } = await supabase
           .from("delivery_challans" as any)
@@ -447,14 +562,19 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
           uom: l.uom || "NOS",
           quantity: toNumber(l.quantity, 1),
           per_unit: toNumber(l.per_unit, 0),
-          lot_number: l.lot_number?.trim() || `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+          lot_number:
+            l.lot_number?.trim() ||
+            `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
           expiry_date: l.expiry_date || null,
           line_amount: Number(l.quantity || 0) * Number(l.per_unit || 0),
           landing_cost: l.landing_cost || l.per_unit || 0,
+          warehouse_id: l.warehouse_id || null,
         }));
 
       if (linePayloads.length) {
-        const { error } = await supabase.from("delivery_challan_lines" as any).insert(linePayloads as never);
+        const { error } = await supabase
+          .from("delivery_challan_lines" as any)
+          .insert(linePayloads as never);
         if (error) throw error;
       }
 
@@ -467,7 +587,8 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
           .maybeSingle();
 
         if (currentItem) {
-          const isAlt = line.alt_uom && line.uom === line.alt_uom && Number(line.alt_uom_conversion || 0) > 0;
+          const isAlt =
+            line.alt_uom && line.uom === line.alt_uom && Number(line.alt_uom_conversion || 0) > 0;
           const baseDeduction = isAlt
             ? Number(line.quantity || 0) / Number(line.alt_uom_conversion)
             : Number(line.quantity || 0);
@@ -492,7 +613,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   });
 
   const customerSublabel = customerRow
-    ? [(customerRow.vat_number as string), (customerRow.phone as string), (customerRow.city as string)]
+    ? [customerRow.vat_number as string, customerRow.phone as string, customerRow.city as string]
         .filter(Boolean)
         .join(" · ")
     : "";
@@ -502,7 +623,11 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     .join(", ");
 
   const customerAddress = customerRow
-    ? [(customerRow.billing_address as string), (customerRow.city as string), (customerRow.state as string)]
+    ? [
+        customerRow.billing_address as string,
+        customerRow.city as string,
+        customerRow.state as string,
+      ]
         .filter(Boolean)
         .join(", ")
     : "";
@@ -589,18 +714,26 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                 Deliver To / Consignee
               </p>
-              <p className="font-semibold text-sm">{customerRow ? (customerRow.name as string) : "—"}</p>
+              <p className="font-semibold text-sm">
+                {customerRow ? (customerRow.name as string) : "—"}
+              </p>
               {customerRow?.vat_number && (
-                <p className="text-xs text-muted-foreground">VAT/PAN: {customerRow.vat_number as string}</p>
+                <p className="text-xs text-muted-foreground">
+                  VAT/PAN: {customerRow.vat_number as string}
+                </p>
               )}
               {customerAddress && (
                 <p className="text-xs text-muted-foreground mt-0.5">{customerAddress}</p>
               )}
               {customerRow?.phone && (
-                <p className="text-xs text-muted-foreground">Phone: {customerRow.phone as string}</p>
+                <p className="text-xs text-muted-foreground">
+                  Phone: {customerRow.phone as string}
+                </p>
               )}
               {customerRow?.email && (
-                <p className="text-xs text-muted-foreground">Email: {customerRow.email as string}</p>
+                <p className="text-xs text-muted-foreground">
+                  Email: {customerRow.email as string}
+                </p>
               )}
             </div>
 
@@ -645,6 +778,24 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
             </div>
           )}
 
+          {/* Dispatch Warehouse Info */}
+          {(() => {
+            const wh = (warehouses.data ?? []).find((w: any) => w.id === warehouseId);
+            if (!wh) return null;
+            return (
+              <div className="mb-6 bg-blue-50 dark:bg-blue-950/30 p-2.5 rounded border border-blue-200 dark:border-blue-800 text-xs">
+                <p className="font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-1">
+                  Dispatched From Warehouse
+                </p>
+                <p className="font-semibold text-foreground">{wh.name}</p>
+                {wh.location && <p className="text-muted-foreground">Location: {wh.location}</p>}
+                {wh.incharge_person && (
+                  <p className="text-muted-foreground">Incharge: {wh.incharge_person}</p>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Line Items Table */}
           <div className="mb-6 overflow-x-auto">
             <table className="w-full text-sm border-collapse">
@@ -658,7 +809,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                   <th className="py-2 px-2 w-[55px] text-xs font-semibold text-right">UOM</th>
                   <th className="py-2 px-2 w-[70px] text-xs font-semibold text-right">Qty</th>
                   <th className="py-2 px-2 w-[80px] text-xs font-semibold text-right">Rate</th>
-                  <th className="py-2 px-2 w-[100px] text-xs font-semibold text-right">Line Amount</th>
+                  <th className="py-2 px-2 w-[100px] text-xs font-semibold text-right">
+                    Line Amount
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -670,7 +823,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                       <td className="py-2.5 px-2">
                         <div className="font-medium text-xs sm:text-sm">{line.name}</div>
                         {line.warehouse && (
-                          <div className="text-[10px] text-blue-600 font-mono">Wh: {line.warehouse}</div>
+                          <div className="text-[10px] text-blue-600 font-mono">
+                            Wh: {line.warehouse}
+                          </div>
                         )}
                       </td>
                       <td className="py-2.5 px-2 text-xs font-mono">{line.code || "—"}</td>
@@ -679,9 +834,13 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                         {line.expiry_date ? formatDate(line.expiry_date, dateFormat) : "—"}
                       </td>
                       <td className="py-2.5 px-2 text-right text-xs font-mono">{line.uom}</td>
-                      <td className="py-2.5 px-2 text-right font-mono font-medium">{num(line.quantity)}</td>
+                      <td className="py-2.5 px-2 text-right font-mono font-medium">
+                        {num(line.quantity)}
+                      </td>
                       <td className="py-2.5 px-2 text-right font-mono">{inr(line.per_unit)}</td>
-                      <td className="py-2.5 px-2 text-right font-semibold font-mono">{inr(lineAmt)}</td>
+                      <td className="py-2.5 px-2 text-right font-semibold font-mono">
+                        {inr(lineAmt)}
+                      </td>
                     </tr>
                   );
                 })}
@@ -696,7 +855,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
               <p className="font-semibold text-muted-foreground uppercase tracking-wide mb-1">
                 Dispatch / Transporter Notes
               </p>
-              <p className="whitespace-pre-line text-muted-foreground">{notes || "No additional shipping instructions."}</p>
+              <p className="whitespace-pre-line text-muted-foreground">
+                {notes || "No additional shipping instructions."}
+              </p>
             </div>
 
             {/* Totals */}
@@ -704,7 +865,8 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
               <div className="flex justify-between py-1 border-b">
                 <span className="text-muted-foreground">Total Dispatched Qty:</span>
                 <span className="font-mono font-semibold">
-                  {num(activeLines.reduce((acc, curr) => acc + Number(curr.quantity || 0), 0))} Units
+                  {num(activeLines.reduce((acc, curr) => acc + Number(curr.quantity || 0), 0))}{" "}
+                  Units
                 </span>
               </div>
               <div className="flex justify-between py-1.5 text-base font-bold">
@@ -716,7 +878,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
 
           {/* Amount in Words */}
           <div className="mb-8 p-3 bg-muted/10 rounded border">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Amount in Words</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">
+              Amount in Words
+            </p>
             <p className="text-xs font-medium">{amountInWords}</p>
           </div>
 
@@ -775,20 +939,14 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
         actions={
           <div className="flex items-center gap-2">
             {!isNew && (
-              <Button
-                variant="outline"
-                onClick={() => setIsEditMode(false)}
-              >
+              <Button variant="outline" onClick={() => setIsEditMode(false)}>
                 Cancel Edit
               </Button>
             )}
             <Badge variant="default" className="bg-primary text-primary-foreground">
               <Truck className="mr-1 h-3.5 w-3.5" /> Outward Dispatch
             </Badge>
-            <Button
-              onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending}
-            >
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? (
                 <Loader2 className="mr-1 h-4 w-4 animate-spin" />
               ) : (
@@ -824,7 +982,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                   </div>
                 )}
                 <div>
-                  <h4 className="text-sm font-semibold text-foreground">{company.name || "Company Details"}</h4>
+                  <h4 className="text-sm font-semibold text-foreground">
+                    {company.name || "Company Details"}
+                  </h4>
                   <div className="text-[10px] text-muted-foreground mt-0.5 space-y-0.5">
                     {company.address && <p>{companyAddress}</p>}
                     {company.phone && <p>Phone: {company.phone}</p>}
@@ -833,7 +993,10 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                 </div>
               </div>
               <div className="text-right">
-                <Badge variant="outline" className="text-[10px] font-mono tracking-wider uppercase bg-primary/5 text-primary border-primary/20">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] font-mono tracking-wider uppercase bg-primary/5 text-primary border-primary/20"
+                >
                   Delivery Challan
                 </Badge>
               </div>
@@ -874,6 +1037,24 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                 onChange={(e) => setChallanNumber(e.target.value)}
                 placeholder="DC-202607-001"
               />
+            </div>
+
+            <div>
+              <Label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Dispatch From Warehouse
+              </Label>
+              <Select value={warehouseId} onValueChange={setWarehouseId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select warehouse" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(warehouses.data ?? []).map((wh: any) => (
+                    <SelectItem key={wh.id} value={wh.id}>
+                      {wh.name} {wh.location ? `- ${wh.location}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -949,26 +1130,6 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
               <Package className="h-4 w-4 text-primary" /> Dispatched Items (From Inventory Master)
             </CardTitle>
             <div className="flex items-center gap-2 flex-wrap justify-end">
-              {/* Warehouse Filter */}
-              {allWarehouses.length > 0 && (
-                <Select
-                  value={filterWarehouse}
-                  onValueChange={(v) => {
-                    setFilterWarehouse(v);
-                    setFilterCategory("all"); // reset category when warehouse changes
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-[160px] text-xs">
-                    <SelectValue placeholder="All Warehouses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Warehouses</SelectItem>
-                    {allWarehouses.map((wh) => (
-                      <SelectItem key={wh} value={wh}>{wh}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
               {/* Category Filter */}
               {allCategories.length > 0 && (
                 <Select value={filterCategory} onValueChange={setFilterCategory}>
@@ -978,7 +1139,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                   <SelectContent>
                     <SelectItem value="all">All Categories</SelectItem>
                     {allCategories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1012,7 +1175,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
 
                   return (
                     <TableRow key={i}>
-                      <TableCell className="w-[50px] text-muted-foreground align-middle">{l.sno}</TableCell>
+                      <TableCell className="w-[50px] text-muted-foreground align-middle">
+                        {l.sno}
+                      </TableCell>
 
                       {/* Item Combobox */}
                       <TableCell className="w-[280px] align-middle">
@@ -1037,15 +1202,20 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                                 alt_uom_conversion: altConv,
                                 total_stock: totalStock,
                                 available_qty: firstLot?.qty ?? totalStock,
-                                per_unit: firstLot?.per_unit || Number(row.default_rate) || l.per_unit,
-                                lot_number: firstLot?.lot_number || (row.lot_number as string) || "",
-                                expiry_date: firstLot?.expiry_date || (row.expiry_date as string) || "",
-                                created_at: firstLot?.created_at || (row.created_at as string) || "",
+                                per_unit:
+                                  firstLot?.per_unit || Number(row.default_rate) || l.per_unit,
+                                lot_number:
+                                  firstLot?.lot_number || (row.lot_number as string) || "",
+                                expiry_date:
+                                  firstLot?.expiry_date || (row.expiry_date as string) || "",
+                                created_at:
+                                  firstLot?.created_at || (row.created_at as string) || "",
                                 category: (row.category as string) || "",
                                 parent_category: (row.parent_category as string) || "",
                                 sub_parent_category: (row.sub_parent_category as string) || "",
                                 sub_category: (row.sub_category as string) || "",
                                 warehouse: (row.warehouse as string) || "",
+                                warehouse_id: (row.warehouse_id as string) || "",
                               });
                             } else {
                               updateLine(i, { ref_id: null });
@@ -1068,15 +1238,26 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                               </div>
                             ) : null}
                             {/* Category breadcrumb */}
-                            {(l.category || l.parent_category || l.sub_parent_category || l.sub_category) ? (
+                            {l.category ||
+                            l.parent_category ||
+                            l.sub_parent_category ||
+                            l.sub_category ? (
                               <div className="text-[10px] text-muted-foreground truncate">
-                                {[l.category, l.parent_category, l.sub_parent_category, l.sub_category]
+                                {[
+                                  l.category,
+                                  l.parent_category,
+                                  l.sub_parent_category,
+                                  l.sub_category,
+                                ]
                                   .filter(Boolean)
                                   .join(" › ")}
                               </div>
                             ) : null}
                             {(() => {
-                              const isAlt = l.alt_uom && l.uom === l.alt_uom && Number(l.alt_uom_conversion || 0) > 0;
+                              const isAlt =
+                                l.alt_uom &&
+                                l.uom === l.alt_uom &&
+                                Number(l.alt_uom_conversion || 0) > 0;
                               const conv = isAlt ? Number(l.alt_uom_conversion) : 1;
                               const totalDisp = Number(l.total_stock || 0) * conv;
                               const lotDisp = Number(l.available_qty || 0) * conv;
@@ -1085,13 +1266,19 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                                 <>
                                   <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
                                     <span>Total Stock:</span>
-                                    <Badge variant="outline" className="text-[10px] h-4 py-0 px-1 font-mono">
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] h-4 py-0 px-1 font-mono"
+                                    >
                                       {num(totalDisp)} {uomLabel}
                                     </Badge>
                                   </div>
                                   <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
                                     <span>Lot Stock:</span>
-                                    <Badge variant="secondary" className="text-[10px] h-4 py-0 px-1 font-mono">
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] h-4 py-0 px-1 font-mono"
+                                    >
                                       {num(lotDisp)} {uomLabel}
                                     </Badge>
                                   </div>
@@ -1125,9 +1312,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                               <SelectItem value={l.main_uom || "NOS"}>
                                 {l.main_uom || "NOS"}
                               </SelectItem>
-                              <SelectItem value={l.alt_uom}>
-                                {l.alt_uom}
-                              </SelectItem>
+                              <SelectItem value={l.alt_uom}>{l.alt_uom}</SelectItem>
                             </SelectContent>
                           </Select>
                         ) : (
@@ -1142,12 +1327,16 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                       {/* Quantity Issued & Stock Validation */}
                       <TableCell className="w-[110px] align-middle">
                         {(() => {
-                          const isAlt = l.alt_uom && l.uom === l.alt_uom && Number(l.alt_uom_conversion || 0) > 0;
+                          const isAlt =
+                            l.alt_uom &&
+                            l.uom === l.alt_uom &&
+                            Number(l.alt_uom_conversion || 0) > 0;
                           const reqBaseQty = isAlt
-                              ? Number(l.quantity || 0) / Number(l.alt_uom_conversion)
-                              : Number(l.quantity || 0);
+                            ? Number(l.quantity || 0) / Number(l.alt_uom_conversion)
+                            : Number(l.quantity || 0);
                           const availBaseQty = Number(l.available_qty || 0);
-                          const isOverStock = l.ref_id && availBaseQty > 0 && reqBaseQty > availBaseQty;
+                          const isOverStock =
+                            l.ref_id && availBaseQty > 0 && reqBaseQty > availBaseQty;
 
                           return (
                             <div>
@@ -1179,9 +1368,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                           step="any"
                           className="w-full text-right"
                           value={l.per_unit}
-                          onChange={(e) =>
-                            updateLine(i, { per_unit: toNumber(e.target.value, 0) })
-                          }
+                          onChange={(e) => updateLine(i, { per_unit: toNumber(e.target.value, 0) })}
                         />
                       </TableCell>
 
@@ -1217,8 +1404,13 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                                 <SelectContent>
                                   {availableLots.map((lot) => {
                                     const lotAge = calculateAge(lot.created_at);
-                                    const isAlt = l.alt_uom && l.uom === l.alt_uom && Number(l.alt_uom_conversion || 0) > 0;
-                                    const displayQty = isAlt ? lot.qty * Number(l.alt_uom_conversion) : lot.qty;
+                                    const isAlt =
+                                      l.alt_uom &&
+                                      l.uom === l.alt_uom &&
+                                      Number(l.alt_uom_conversion || 0) > 0;
+                                    const displayQty = isAlt
+                                      ? lot.qty * Number(l.alt_uom_conversion)
+                                      : lot.qty;
 
                                     return (
                                       <SelectItem
@@ -1227,10 +1419,14 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                                         className="text-xs"
                                       >
                                         <div className="flex items-center justify-between gap-2">
-                                          <span className="font-mono font-semibold">{lot.lot_number}</span>
+                                          <span className="font-mono font-semibold">
+                                            {lot.lot_number}
+                                          </span>
                                           <span className="text-[10px] text-muted-foreground">
                                             {displayQty > 0 ? `${num(displayQty)} ${l.uom}` : ""}
-                                            {lot.expiry_date ? ` · Exp: ${formatDate(lot.expiry_date, dateFormat)}` : ""}
+                                            {lot.expiry_date
+                                              ? ` · Exp: ${formatDate(lot.expiry_date, dateFormat)}`
+                                              : ""}
                                             {lotAge !== null ? ` · Age: ${lotAge}d` : ""}
                                           </span>
                                         </div>
@@ -1267,7 +1463,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
                       <TableCell className="w-[100px] align-middle text-center">
                         {ageDays !== null ? (
                           <Badge
-                            variant={ageDays > 180 ? "destructive" : ageDays > 90 ? "outline" : "secondary"}
+                            variant={
+                              ageDays > 180 ? "destructive" : ageDays > 90 ? "outline" : "secondary"
+                            }
                             className={`text-xs ${
                               ageDays > 180
                                 ? ""
@@ -1324,7 +1522,9 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
             <div className="flex flex-col justify-end space-y-2 border-t md:border-t-0 md:border-l md:pl-6 pt-4 md:pt-0">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Total Dispatched Units:</span>
-                <span className="font-semibold">{num(lines.reduce((a, b) => a + Number(b.quantity || 0), 0))}</span>
+                <span className="font-semibold">
+                  {num(lines.reduce((a, b) => a + Number(b.quantity || 0), 0))}
+                </span>
               </div>
               <div className="flex items-center justify-between text-lg font-bold">
                 <span>Total Goods Value:</span>

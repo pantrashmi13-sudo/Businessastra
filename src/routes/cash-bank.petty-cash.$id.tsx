@@ -20,7 +20,7 @@ function PettyCashViewPage() {
     queryKey: ["petty-cash", id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("petty_cash_accounts")
+        .from("petty_cash_accounts" as any)
         .select("*")
         .eq("id", id)
         .single();
@@ -50,17 +50,17 @@ function PettyCashViewPage() {
     <>
       <PageHeader
         title={`Petty Cash: ${pettyCash.name}`}
-        description="View petty cash details and ledger"
+        description={`Opening: ${inr(pettyCash.opening_balance)} | Current: ${inr(pettyCash.current_balance)}`}
       />
       <div className="space-y-6 p-6">
         <PettyCashForm initial={pettyCash} viewOnly />
 
         <Card>
           <CardHeader>
-            <CardTitle>Petty Ledger</CardTitle>
+            <CardTitle>Statement</CardTitle>
           </CardHeader>
           <CardContent>
-            <PettyCashLedger pettyCashId={id} />
+            <PettyCashLedger pettyCashId={id} openingBalance={pettyCash.opening_balance} />
           </CardContent>
         </Card>
       </div>

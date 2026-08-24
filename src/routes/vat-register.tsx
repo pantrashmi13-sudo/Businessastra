@@ -55,6 +55,31 @@ interface SalesInvoiceRow {
   status: string;
 }
 
+interface PurchaseReturnRow {
+  id: string;
+  return_number: string;
+  return_date: string;
+  vendor_id: string | null;
+  vendors: { name: string } | null;
+  taxable_amount: number;
+  vat_amount: number;
+  total_amount: number;
+  status: string;
+}
+
+interface SalesReturnRow {
+  id: string;
+  return_number: string;
+  return_date: string;
+  customer_id: string | null;
+  customers: { name: string } | null;
+  subtotal: number;
+  discount: number;
+  vat_amount: number;
+  total_amount: number;
+  status: string;
+}
+
 function DateFilterInput({
   label,
   value,
@@ -140,10 +165,54 @@ function VATRegisterPage() {
     },
   });
 
-  // Input VAT calculations (from Purchases)
+  // Query Purchase Returns (reduces Input VAT)
+  const { data: purchaseReturns, isLoading: purchaseReturnsLoading } = useQuery({
+    queryKey: ["vat-register", "purchase-returns", fromDate, toDate],
+    queryFn: async () => {
+      let query = supabase
+        .from("purchase_returns")
+        .select("*, vendors(name)")
+        .eq("status", "approved");
+
+      if (fromDate) {
+        query = query.gte("return_date", fromDate);
+      }
+      if (toDate) {
+        query = query.lte("return_date", toDate);
+      }
+
+      const { data, error } = await query.order("return_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as PurchaseReturnRow[];
+    },
+  });
+
+  // Query Sales Returns (reduces Output VAT)
+  const { data: salesReturns, isLoading: salesReturnsLoading } = useQuery({
+    queryKey: ["vat-register", "sales-returns", fromDate, toDate],
+    queryFn: async () => {
+      let query = supabase
+        .from("sales_returns")
+        .select("*, customers(name)")
+        .eq("status", "approved");
+
+      if (fromDate) {
+        query = query.gte("return_date", fromDate);
+      }
+      if (toDate) {
+        query = query.lte("return_date", toDate);
+      }
+
+      const { data, error } = await query.order("return_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as SalesReturnRow[];
+    },
+  });
+
+  // Input VAT calculations (from Purchases minus Purchase Returns)
   const purchaseTotals = useMemo(() => {
     if (!purchases) return { taxable: 0, vat: 0, total: 0 };
-    return purchases.reduce(
+    const purchaseSum = purchases.reduce(
       (acc, b) => ({
         taxable: acc.taxable + (Number(b.taxable_amount) || 0),
         vat: acc.vat + (Number(b.vat_amount) || 0),
@@ -151,12 +220,26 @@ function VATRegisterPage() {
       }),
       { taxable: 0, vat: 0, total: 0 }
     );
-  }, [purchases]);
+    // Subtract purchase returns
+    const returnSum = (purchaseReturns || []).reduce(
+      (acc, r) => ({
+        taxable: acc.taxable + (Number(r.taxable_amount) || 0),
+        vat: acc.vat + (Number(r.vat_amount) || 0),
+        total: acc.total + (Number(r.total_amount) || 0),
+      }),
+      { taxable: 0, vat: 0, total: 0 }
+    );
+    return {
+      taxable: purchaseSum.taxable - returnSum.taxable,
+      vat: purchaseSum.vat - returnSum.vat,
+      total: purchaseSum.total - returnSum.total,
+    };
+  }, [purchases, purchaseReturns]);
 
-  // Output VAT calculations (from Sales)
+  // Output VAT calculations (from Sales minus Sales Returns)
   const salesTotals = useMemo(() => {
     if (!sales) return { taxable: 0, vat: 0, total: 0 };
-    return sales.reduce(
+    const salesSum = sales.reduce(
       (acc, s) => ({
         taxable: acc.taxable + (Number(s.subtotal || 0) - Number(s.discount || 0)),
         vat: acc.vat + (Number(s.vat_amount) || 0),
@@ -164,7 +247,21 @@ function VATRegisterPage() {
       }),
       { taxable: 0, vat: 0, total: 0 }
     );
-  }, [sales]);
+    // Subtract sales returns
+    const returnSum = (salesReturns || []).reduce(
+      (acc, r) => ({
+        taxable: acc.taxable + (Number(r.subtotal || 0) - Number(r.discount || 0)),
+        vat: acc.vat + (Number(r.vat_amount) || 0),
+        total: acc.total + (Number(r.total_amount) || 0),
+      }),
+      { taxable: 0, vat: 0, total: 0 }
+    );
+    return {
+      taxable: salesSum.taxable - returnSum.taxable,
+      vat: salesSum.vat - returnSum.vat,
+      total: salesSum.total - returnSum.total,
+    };
+  }, [sales, salesReturns]);
 
   // Net VAT Balance calculations
   const netVat = useMemo(() => {
@@ -175,7 +272,7 @@ function VATRegisterPage() {
     };
   }, [salesTotals.vat, purchaseTotals.vat]);
 
-  const isLoading = purchasesLoading || salesLoading;
+  const isLoading = purchasesLoading || salesLoading || purchaseReturnsLoading || salesReturnsLoading;
 
   return (
     <>
@@ -233,7 +330,8 @@ function VATRegisterPage() {
               <CardContent>
                 <div className="text-2xl font-bold font-mono">{inr(purchaseTotals.vat)}</div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  From {purchases?.length || 0} approved purchase bills
+                  From {purchases?.length || 0} bills
+                  {purchaseReturns?.length ? ` (${purchaseReturns.length} returns)` : ""}
                 </p>
                 <div className="text-xs text-muted-foreground/80 mt-0.5">
                   Taxable Purchase: <span className="font-mono">{inr(purchaseTotals.taxable)}</span>
@@ -250,7 +348,8 @@ function VATRegisterPage() {
               <CardContent>
                 <div className="text-2xl font-bold font-mono">{inr(salesTotals.vat)}</div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  From {sales?.length || 0} approved sales invoices
+                  From {sales?.length || 0} invoices
+                  {salesReturns?.length ? ` (${salesReturns.length} returns)` : ""}
                 </p>
                 <div className="text-xs text-muted-foreground/80 mt-0.5">
                   Taxable Sales: <span className="font-mono">{inr(salesTotals.taxable)}</span>
@@ -304,24 +403,57 @@ function VATRegisterPage() {
                         <TableRow>
                           <TableHead className="w-1/2">Particulars</TableHead>
                           <TableHead className="text-right">Taxable Amount</TableHead>
-                          <TableHead className="text-right">VAT Amount (13%)</TableHead>
+                          <TableHead className="text-right">VAT Amount</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        <TableRow>
+                        {/* Sales Section */}
+                        <TableRow className="bg-amber-50/30">
                           <TableCell className="font-medium">
                             Sales (Output VAT from Approved Invoices)
                           </TableCell>
-                          <TableCell className="text-right font-mono">{inr(salesTotals.taxable)}</TableCell>
+                          <TableCell className="text-right font-mono">{inr(salesTotals.taxable + (salesReturns || []).reduce((acc, r) => acc + (Number(r.subtotal || 0) - Number(r.discount || 0)), 0))}</TableCell>
+                          <TableCell className="text-right font-mono text-amber-600 font-semibold">{inr(salesTotals.vat + (salesReturns || []).reduce((acc, r) => acc + (Number(r.vat_amount) || 0), 0))}</TableCell>
+                        </TableRow>
+                        <TableRow className="bg-red-50/30">
+                          <TableCell className="font-medium pl-8 text-red-600">
+                            Less: Sales Returns
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-red-600">-{inr((salesReturns || []).reduce((acc, r) => acc + (Number(r.subtotal || 0) - Number(r.discount || 0)), 0))}</TableCell>
+                          <TableCell className="text-right font-mono text-red-600">-{inr((salesReturns || []).reduce((acc, r) => acc + (Number(r.vat_amount) || 0), 0))}</TableCell>
+                        </TableRow>
+                        <TableRow className="border-b-2 bg-muted/30">
+                          <TableCell className="font-semibold">
+                            Net Output VAT (Sales - Returns)
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-semibold">{inr(salesTotals.taxable)}</TableCell>
                           <TableCell className="text-right font-mono text-amber-600 font-semibold">{inr(salesTotals.vat)}</TableCell>
                         </TableRow>
-                        <TableRow className="border-b-2">
+
+                        {/* Purchases Section */}
+                        <TableRow className="bg-blue-50/30">
                           <TableCell className="font-medium">
                             Purchases (Input VAT from Approved Bills)
                           </TableCell>
-                          <TableCell className="text-right font-mono">{inr(purchaseTotals.taxable)}</TableCell>
+                          <TableCell className="text-right font-mono">{inr(purchaseTotals.taxable + (purchaseReturns || []).reduce((acc, r) => acc + (Number(r.taxable_amount) || 0), 0))}</TableCell>
+                          <TableCell className="text-right font-mono text-blue-600 font-semibold">{inr(purchaseTotals.vat + (purchaseReturns || []).reduce((acc, r) => acc + (Number(r.vat_amount) || 0), 0))}</TableCell>
+                        </TableRow>
+                        <TableRow className="bg-red-50/30">
+                          <TableCell className="font-medium pl-8 text-red-600">
+                            Less: Purchase Returns
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-red-600">-{inr((purchaseReturns || []).reduce((acc, r) => acc + (Number(r.taxable_amount) || 0), 0))}</TableCell>
+                          <TableCell className="text-right font-mono text-red-600">-{inr((purchaseReturns || []).reduce((acc, r) => acc + (Number(r.vat_amount) || 0), 0))}</TableCell>
+                        </TableRow>
+                        <TableRow className="border-b-2 bg-muted/30">
+                          <TableCell className="font-semibold">
+                            Net Input VAT (Purchases - Returns)
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-semibold">{inr(purchaseTotals.taxable)}</TableCell>
                           <TableCell className="text-right font-mono text-blue-600 font-semibold">{inr(purchaseTotals.vat)}</TableCell>
                         </TableRow>
+
+                        {/* Net Balance */}
                         <TableRow className="bg-muted/40 font-bold text-base">
                           <TableCell>
                             {netVat.isPayable ? "Net VAT Payable (Output > Input)" : "Net VAT Receivable / Credit (Input > Output)"}
@@ -334,6 +466,9 @@ function VATRegisterPage() {
                       </TableBody>
                     </Table>
                   </div>
+                  <p className="text-[10px] text-muted-foreground mt-3">
+                    Formula: Net Output VAT - Net Input VAT = {netVat.isPayable ? "VAT Payable" : "VAT Credit/Receivable"}
+                  </p>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -349,17 +484,17 @@ function VATRegisterPage() {
                           <TableHead>Invoice #</TableHead>
                           <TableHead>Date</TableHead>
                           <TableHead>Customer</TableHead>
-                          <TableHead>Billing Type</TableHead>
+                          <TableHead>Type</TableHead>
                           <TableHead className="text-right">Taxable Sales</TableHead>
                           <TableHead className="text-right">VAT Amount</TableHead>
                           <TableHead className="text-right">Total Amount</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {sales?.length === 0 ? (
+                        {(!sales || sales.length === 0) && (!salesReturns || salesReturns.length === 0) ? (
                           <TableRow>
                             <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                              No approved sales invoices found for this period.
+                              No approved sales invoices or returns found for this period.
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -390,8 +525,31 @@ function VATRegisterPage() {
                                 </TableCell>
                               </TableRow>
                             ))}
+                            {salesReturns?.map((r) => (
+                              <TableRow key={r.id} className="bg-red-50/30">
+                                <TableCell className="font-medium font-mono text-red-600">{r.return_number}</TableCell>
+                                <TableCell className="text-xs">{formatDate(r.return_date, dateFormat)}</TableCell>
+                                <TableCell>
+                                  <div className="font-normal text-sm">{r.customers?.name || "—"}</div>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="destructive" className="text-[10px] py-0 px-1.5">
+                                    Sales Return
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm text-red-600">
+                                  -{inr(Number(r.subtotal || 0) - Number(r.discount || 0))}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm text-red-600">
+                                  -{inr(r.vat_amount)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm font-semibold text-red-600">
+                                  -{inr(r.total_amount)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
                             <TableRow className="bg-muted/50 font-semibold text-sm">
-                              <TableCell colSpan={4}>Total Sales Register</TableCell>
+                              <TableCell colSpan={4}>Net Sales (After Returns)</TableCell>
                               <TableCell className="text-right font-mono">{inr(salesTotals.taxable)}</TableCell>
                               <TableCell className="text-right font-mono text-amber-600">{inr(salesTotals.vat)}</TableCell>
                               <TableCell className="text-right font-mono">{inr(salesTotals.total)}</TableCell>
@@ -416,17 +574,17 @@ function VATRegisterPage() {
                           <TableHead>Bill #</TableHead>
                           <TableHead>Date</TableHead>
                           <TableHead>Vendor</TableHead>
-                          <TableHead>Billing Type</TableHead>
+                          <TableHead>Type</TableHead>
                           <TableHead className="text-right">Taxable Purchases</TableHead>
                           <TableHead className="text-right">VAT Amount</TableHead>
                           <TableHead className="text-right">Total Amount</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {purchases?.length === 0 ? (
+                        {(!purchases || purchases.length === 0) && (!purchaseReturns || purchaseReturns.length === 0) ? (
                           <TableRow>
                             <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                              No approved purchase bills found for this period.
+                              No approved purchase bills or returns found for this period.
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -452,8 +610,29 @@ function VATRegisterPage() {
                                 </TableCell>
                               </TableRow>
                             ))}
+                            {purchaseReturns?.map((r) => (
+                              <TableRow key={r.id} className="bg-red-50/30">
+                                <TableCell className="font-medium font-mono text-red-600">{r.return_number}</TableCell>
+                                <TableCell className="text-xs">{formatDate(r.return_date, dateFormat)}</TableCell>
+                                <TableCell className="text-sm">{r.vendors?.name || "—"}</TableCell>
+                                <TableCell>
+                                  <Badge variant="destructive" className="text-[10px] py-0 px-1.5">
+                                    Purchase Return
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm text-red-600">
+                                  -{inr(r.taxable_amount)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm text-red-600">
+                                  -{inr(r.vat_amount)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono tabular-nums text-sm font-semibold text-red-600">
+                                  -{inr(r.total_amount)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
                             <TableRow className="bg-muted/50 font-semibold text-sm">
-                              <TableCell colSpan={4}>Total Purchase Register</TableCell>
+                              <TableCell colSpan={4}>Net Purchases (After Returns)</TableCell>
                               <TableCell className="text-right font-mono">{inr(purchaseTotals.taxable)}</TableCell>
                               <TableCell className="text-right font-mono text-blue-600">{inr(purchaseTotals.vat)}</TableCell>
                               <TableCell className="text-right font-mono">{inr(purchaseTotals.total)}</TableCell>

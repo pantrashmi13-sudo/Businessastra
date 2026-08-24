@@ -31,7 +31,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Search, Receipt, Eye, Trash2, CreditCard, CheckCircle2, FileText, Lock } from "lucide-react";
+import { Plus, Search, Receipt, Eye, Trash2, CreditCard, CheckCircle2, FileText, Lock, Undo2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { inr } from "@/lib/format";
 import { formatDate } from "@/lib/date-conversion";
@@ -175,9 +176,16 @@ export function SalesInvoiceList() {
         title="Sales Invoices"
         description="Generated invoices from delivery challans. Draft invoices can be edited and deleted. Approved invoices are locked and cannot be deleted."
         actions={
-          <Button onClick={() => setInvoiceDialogOpen(true)}>
-            <Plus className="mr-1 h-4 w-4" /> Create Invoice
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link to="/sales-returns/new">
+              <Button variant="outline">
+                <Undo2 className="mr-1 h-4 w-4" /> Sales Return
+              </Button>
+            </Link>
+            <Button onClick={() => setInvoiceDialogOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" /> Create Invoice
+            </Button>
+          </div>
         }
       />
 

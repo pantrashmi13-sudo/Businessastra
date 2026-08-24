@@ -68,12 +68,15 @@ interface Line {
   vat_rate: number;
   lot_number: string;
   expiry_date: string;
+  warehouse?: string;
+  warehouse_id?: string;
+  rag_id?: string;
   landing_cost?: number;
 }
 
 function toISODate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
-  
+
   // Normalize delimiters (replace '/' or '.' with '-')
   let normalized = dateStr.trim().replace(/[\/\.]/g, "-");
 
@@ -115,7 +118,7 @@ const TYPE_LABEL: Record<BillType, string> = {
   other_items: "Other Items",
 };
 
-const emptyLine = (sno: number): Line => ({
+const emptyLine = (sno: number, billType?: string): Line => ({
   sno,
   ref_id: null,
   code: "",
@@ -124,11 +127,20 @@ const emptyLine = (sno: number): Line => ({
   quantity: 1,
   per_unit: 0,
   vat_rate: 0,
-  lot_number: `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+  lot_number:
+    billType === "services"
+      ? ""
+      : `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
   expiry_date: "",
+  warehouse: "Main Warehouse",
 });
 
-export function BillForm({ billId, initialType = "items", initial, pendingOcrResult }: BillFormProps) {
+export function BillForm({
+  billId,
+  initialType = "items",
+  initial,
+  pendingOcrResult,
+}: BillFormProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -167,9 +179,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const [ocrTaxType, setOcrTaxType] = useState<string | null>(
     (existing?.tax_type as string) ?? null,
   );
-  const [vendorId, setVendorId] = useState<string | null>(
-    (existing?.vendor_id as string) ?? null,
-  );
+  const [vendorId, setVendorId] = useState<string | null>((existing?.vendor_id as string) ?? null);
   const [vendorRow, setVendorRow] = useState<Record<string, unknown> | null>(null);
 
   const taxType = useMemo<"vat" | "pan">(() => {
@@ -183,9 +193,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     return "vat";
   }, [vendorRow, ocrTaxType, existing]);
   const [billNumber, setBillNumber] = useState<string>((existing?.bill_number as string) ?? "");
-  const [invoiceDate, setInvoiceDate] = useState<string>(
-    (existing?.invoice_date as string) ?? "",
-  );
+  const [invoiceDate, setInvoiceDate] = useState<string>((existing?.invoice_date as string) ?? "");
   const [poNumber, setPoNumber] = useState<string>((existing?.po_number as string) ?? "");
   const [internalBillNumber, setInternalBillNumber] = useState<string>(
     (existing?.internal_bill_number as string) ?? "",
@@ -224,7 +232,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         expiry_date: (l.expiry_date as string) ?? "",
       }));
     }
-    return [emptyLine(1)];
+    return [emptyLine(1, initialType)];
   });
 
   const [uploading, setUploading] = useState(false);
@@ -250,6 +258,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const [showApprovalConfirmModal, setShowApprovalConfirmModal] = useState(false);
   const [syncVendorToMaster, setSyncVendorToMaster] = useState(true);
   const [linesToSyncMaster, setLinesToSyncMaster] = useState<Record<string, boolean>>({});
+  const [linesWarehouseMap, setLinesWarehouseMap] = useState<Record<number, string>>({});
+  const [linesRagMap, setLinesRagMap] = useState<Record<number, string>>({});
   const [editingMasterItemIndex, setEditingMasterItemIndex] = useState<number | null>(null);
   const [syncedItemMap, setSyncedItemMap] = useState<Record<number, boolean>>({});
   const [masterFormOpen, setMasterFormOpen] = useState(false);
@@ -309,24 +319,44 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
       return data ?? [];
     },
   });
+  const warehouses = useQuery({
+    queryKey: ["warehouses", "list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("warehouses").select("*");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const warehouseRags = useQuery({
+    queryKey: ["warehouse_rags", "list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("warehouse_rags").select("*").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const vendorOptions: EntityOption[] = useMemo(
     () =>
       (vendors.data ?? []).map((v: Record<string, unknown>) => ({
         id: v.id as string,
         label: v.name as string,
-        sublabel: [(v.vat_number as string), (v.pan as string), (v.state as string)].filter(Boolean).join(" · "),
+        sublabel: [v.vat_number as string, v.pan as string, v.state as string]
+          .filter(Boolean)
+          .join(" · "),
         raw: v,
       })),
     [vendors.data],
   );
 
   const itemOptions: EntityOption[] = useMemo(() => {
-    const source = billType === "services"
-      ? (items.data ?? []).filter((i: Record<string, unknown>) => i.is_service)
-      : billType === "fixed_assets"
-        ? (assets.data ?? [])
-        : (items.data ?? []).filter((i: Record<string, unknown>) => !i.is_service);
+    const source =
+      billType === "services"
+        ? (items.data ?? []).filter((i: Record<string, unknown>) => i.is_service)
+        : billType === "fixed_assets"
+          ? (assets.data ?? [])
+          : (items.data ?? []).filter((i: Record<string, unknown>) => !i.is_service);
     return source.map((i: Record<string, unknown>) => ({
       id: i.id as string,
       label: (i.item_name || i.asset_name) as string,
@@ -345,10 +375,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
   // Auto-fill item code from master when ref_id is set but code is empty
   useEffect(() => {
-    const allItems = [
-      ...(items.data ?? []),
-      ...(assets.data ?? []),
-    ] as Record<string, unknown>[];
+    const allItems = [...(items.data ?? []), ...(assets.data ?? [])] as Record<string, unknown>[];
     if (!allItems.length) return;
 
     setLines((prev) =>
@@ -364,9 +391,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
   const activeCompany = useMemo(() => {
     const list = (companies.data ?? []) as Array<Record<string, unknown>>;
-    return (list.find((c) => c.is_default) ?? list[0]) as
-      | Record<string, unknown>
-      | undefined;
+    return (list.find((c) => c.is_default) ?? list[0]) as Record<string, unknown> | undefined;
   }, [companies.data]);
 
   const companyDateFormat = (activeCompany?.date_format as DateFormat) || "ad";
@@ -382,7 +407,16 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         transportation_vat_rate: billType === "services" ? 0 : transportVatRate,
         other_charges_vat_rate: otherVatRate,
       }),
-    [lines, exempted, discount, transportation, otherCharges, transportVatRate, otherVatRate, billType],
+    [
+      lines,
+      exempted,
+      discount,
+      transportation,
+      otherCharges,
+      transportVatRate,
+      otherVatRate,
+      billType,
+    ],
   );
 
   const totals = useMemo(() => {
@@ -402,9 +436,11 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const updateLine = (i: number, patch: Partial<Line>) => {
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   };
-  const addLine = () => setLines((prev) => [...prev, emptyLine(prev.length + 1)]);
+  const addLine = () => setLines((prev) => [...prev, emptyLine(prev.length + 1, billType)]);
   const removeLine = (i: number) =>
-    setLines((prev) => prev.filter((_, idx) => idx !== i).map((l, idx) => ({ ...l, sno: idx + 1 })));
+    setLines((prev) =>
+      prev.filter((_, idx) => idx !== i).map((l, idx) => ({ ...l, sno: idx + 1 })),
+    );
 
   // Upload + extract
   const handleFile = async (file: File) => {
@@ -503,43 +539,52 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
     // Populate line items from OCR, auto-linking to masters
     if (r.lines && r.lines.length > 0) {
-      const masterList = billTypeRef.current === "fixed_assets"
-        ? (assets.data ?? [])
-        : (items.data ?? []);
+      const masterList =
+        billTypeRef.current === "fixed_assets" ? (assets.data ?? []) : (items.data ?? []);
       const nameField = billTypeRef.current === "fixed_assets" ? "asset_name" : "item_name";
       const codeField = billTypeRef.current === "fixed_assets" ? "asset_code" : "item_code";
 
-      setLines(r.lines.map((l, i) => {
-        // Auto-link: match by code first, then by name
-        let refId: string | null = null;
-        if (l.code) {
-          const byCode = masterList.find((m: Record<string, unknown>) =>
-            (m[codeField] as string)?.toLowerCase() === l.code!.toLowerCase()
-          );
-          if (byCode) refId = byCode.id as string;
-        }
-        if (!refId && l.name) {
-          const normalizedName = l.name.trim().toLowerCase();
-          const byName = masterList.find((m: Record<string, unknown>) =>
-            ((m[nameField] as string) ?? "").trim().toLowerCase() === normalizedName
-          );
-          if (byName) refId = byName.id as string;
-        }
+      setLines(
+        r.lines.map((l, i) => {
+          // Auto-link: match by code first, then by name
+          let refId: string | null = null;
+          if (l.code) {
+            const byCode = masterList.find(
+              (m: Record<string, unknown>) =>
+                (m[codeField] as string)?.toLowerCase() === l.code!.toLowerCase(),
+            );
+            if (byCode) refId = byCode.id as string;
+          }
+          if (!refId && l.name) {
+            const normalizedName = l.name.trim().toLowerCase();
+            const byName = masterList.find(
+              (m: Record<string, unknown>) =>
+                ((m[nameField] as string) ?? "").trim().toLowerCase() === normalizedName,
+            );
+            if (byName) refId = byName.id as string;
+          }
 
-        return {
-          id: crypto.randomUUID(),
-          sno: i + 1,
-          ref_id: refId,
-          code: l.code || "",
-          name: l.name || "",
-          uom: l.uom || "NOS",
-          quantity: l.quantity || 1,
-          per_unit: l.per_unit || 0,
-          vat_rate: l.vat_rate || 0,
-          lot_number: l.lot_number || "",
-          expiry_date: l.expiry_date || "",
-        };
-      }));
+          return {
+            id: crypto.randomUUID(),
+            sno: i + 1,
+            ref_id: refId,
+            code: l.code || "",
+            name: l.name || "",
+            uom: l.uom || "NOS",
+            quantity: l.quantity || 1,
+            per_unit: l.per_unit || 0,
+            vat_rate: l.vat_rate || 0,
+            lot_number:
+              billTypeRef.current === "services"
+                ? ""
+                : l.lot_number ||
+                  (billTypeRef.current === "items"
+                    ? `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+                    : ""),
+            expiry_date: billTypeRef.current === "items" ? l.expiry_date || "" : "",
+          };
+        }),
+      );
     }
   };
 
@@ -548,8 +593,17 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     let match = null;
     if (r.vendor_vat_number || r.vendor_pan) {
       match = (vendors.data ?? []).find((v) => {
-        if (r.vendor_vat_number && (v.vat_number as string)?.trim().toLowerCase() === r.vendor_vat_number.trim().toLowerCase()) return true;
-        if (r.vendor_pan && (v.pan as string)?.trim().toLowerCase() === r.vendor_pan.trim().toLowerCase()) return true;
+        if (
+          r.vendor_vat_number &&
+          (v.vat_number as string)?.trim().toLowerCase() ===
+            r.vendor_vat_number.trim().toLowerCase()
+        )
+          return true;
+        if (
+          r.vendor_pan &&
+          (v.pan as string)?.trim().toLowerCase() === r.vendor_pan.trim().toLowerCase()
+        )
+          return true;
         return false;
       });
     }
@@ -564,12 +618,10 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     // Fuzzy fallback: try contains match
     if (!match && r.vendor_name) {
       const nameNorm = r.vendor_name.trim().toLowerCase();
-      match = (vendors.data ?? []).find(
-        (v) => {
-          const vName = (v.name as string).trim().toLowerCase();
-          return vName.includes(nameNorm) || nameNorm.includes(vName);
-        },
-      );
+      match = (vendors.data ?? []).find((v) => {
+        const vName = (v.name as string).trim().toLowerCase();
+        return vName.includes(nameNorm) || nameNorm.includes(vName);
+      });
     }
 
     if (match) {
@@ -577,7 +629,8 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
       setVendorRow(match as Record<string, unknown>);
       setExtractedVendorData(null);
     } else if (r.vendor_name || r.vendor_vat_number || r.vendor_pan) {
-      const finalName = r.vendor_name?.trim() || `Vendor (VAT/PAN: ${r.vendor_vat_number || r.vendor_pan})`;
+      const finalName =
+        r.vendor_name?.trim() || `Vendor (VAT/PAN: ${r.vendor_vat_number || r.vendor_pan})`;
       setExtractedVendorData({
         name: finalName,
         vat_number: r.vendor_vat_number || null,
@@ -597,7 +650,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
     if (!extractedVendorData) return;
     setCreatingVendor(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       const { data: newVendor, error } = await supabase
         .from("vendors")
         .insert({
@@ -627,14 +682,23 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   };
 
   const save = useMutation({
-    mutationFn: async (opts: { approve: boolean; syncMasters?: boolean; lineIndicesToSync?: number[]; redirectToMasters?: boolean }) => {
+    mutationFn: async (opts: {
+      approve: boolean;
+      syncMasters?: boolean;
+      lineIndicesToSync?: number[];
+      redirectToMasters?: boolean;
+      warehouseMap?: Record<number, string>;
+      ragMap?: Record<number, string>;
+    }) => {
       // Validate required fields
       if (!vendorId) {
         throw new Error("Vendor name is required. Please select or add a vendor before saving.");
       }
       const validLines = lines.filter((l) => l.name.trim());
       if (validLines.length === 0) {
-        throw new Error("At least one item is required. Please add at least one line item before saving.");
+        throw new Error(
+          "At least one item is required. Please add at least one line item before saving.",
+        );
       }
 
       const payload: Record<string, unknown> = {
@@ -658,7 +722,11 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         notes: notes || null,
         extracted_json: (() => {
           if (!ocrRawText) return null;
-          try { return JSON.parse(ocrRawText); } catch { return { raw: ocrRawText }; }
+          try {
+            return JSON.parse(ocrRawText);
+          } catch {
+            return { raw: ocrRawText };
+          }
         })(),
       };
 
@@ -682,16 +750,18 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           }
           // Find vendors with same PAN
           if (vRow?.pan) {
-            const { data: byPan } = await supabase
-              .from("vendors")
-              .select("id")
-              .eq("pan", vRow.pan);
+            const { data: byPan } = await supabase.from("vendors").select("id").eq("pan", vRow.pan);
             for (const v of byPan ?? []) candidateVendorIds.add(v.id);
           }
         }
 
         // Query 1: same bill_number + vendor_id in candidate set
-        let foundDup: { id: string; bill_number: string | null; invoice_date: string | null; final_amount: number } | null = null;
+        let foundDup: {
+          id: string;
+          bill_number: string | null;
+          invoice_date: string | null;
+          final_amount: number;
+        } | null = null;
         if (candidateVendorIds.size > 0) {
           const { data } = await supabase
             .from("bills")
@@ -713,17 +783,22 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         }
 
         if (foundDup) {
-          const dateStr = foundDup.invoice_date ? ` dated ${formatDate(foundDup.invoice_date, companyDateFormat)}` : "";
+          const dateStr = foundDup.invoice_date
+            ? ` dated ${formatDate(foundDup.invoice_date, companyDateFormat)}`
+            : "";
           throw new Error(
             `Duplicate bill detected — Bill #${billNumber}${dateStr} (₹${foundDup.final_amount}) already exists. ` +
-            `Please review the existing bill before saving.`,
+              `Please review the existing bill before saving.`,
           );
         }
       }
 
       let id = billId;
       if (id) {
-        const { error } = await supabase.from("bills").update(payload as never).eq("id", id);
+        const { error } = await supabase
+          .from("bills")
+          .update(payload as never)
+          .eq("id", id);
         if (error) throw error;
         await supabase.from("bill_lines").delete().eq("bill_id", id);
       } else {
@@ -740,11 +815,14 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         .filter((l) => l.name.trim())
         .map((l) => {
           // Calculate landing cost per unit including transportation and other charges
-          const subtotal = lines.reduce((s, line) => s + (Number(line.quantity)||0) * (Number(line.per_unit)||0), 0);
+          const subtotal = lines.reduce(
+            (s, line) => s + (Number(line.quantity) || 0) * (Number(line.per_unit) || 0),
+            0,
+          );
           const disc = Number(discount) || 0;
           const trans = Number(transportation) || 0;
           const other = Number(otherCharges) || 0;
-          const lineAmt = (Number(l.quantity)||0) * (Number(l.per_unit)||0);
+          const lineAmt = (Number(l.quantity) || 0) * (Number(l.per_unit) || 0);
           const prop = subtotal > 0 ? lineAmt / subtotal : 0;
           const lineDisc = prop * disc;
           const lineTrans = prop * trans;
@@ -753,8 +831,16 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           const qty = Number(l.quantity) || 1;
           const landingCostPerUnit = gross / qty;
 
-          // Auto-generate lot number if empty
-          const lotNumber = l.lot_number?.trim() || `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+          // Auto-generate lot number only for inventories if empty
+          const lotNumber =
+            billType === "services"
+              ? ""
+              : l.lot_number?.trim() ||
+                (billType === "items"
+                  ? `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+                  : "");
+
+          const wh = warehouses.data?.find((w: any) => w.name === l.warehouse);
 
           return {
             bill_id: id!,
@@ -772,23 +858,35 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             per_unit: toNumber(l.per_unit, 0),
             vat_rate: toNumber(l.vat_rate, 0),
             lot_number: lotNumber,
-            expiry_date: l.expiry_date || null,
+            expiry_date: billType !== "items" ? null : l.expiry_date || null,
             line_amount: computeLineAmount(l.quantity, l.per_unit),
             landing_cost: landingCostPerUnit,
+            warehouse_id: wh?.id || null,
+            _warehouse_name: l.warehouse, // temporary internal field
           };
         });
       if (linePayloads.length) {
-        const { error } = await supabase.from("bill_lines").insert(linePayloads as never);
+        // Strip out temporary fields before inserting
+        const dbPayloads = linePayloads.map((lp) => {
+          const { _warehouse_name, ...rest } = lp;
+          return rest;
+        });
+        const { error } = await supabase.from("bill_lines").insert(dbPayloads as never);
         if (error) throw error;
       }
 
       // Insert into stock_ledger when bill is approved and has inventory items
       if (opts.approve && id && billType === "items") {
         // Remove any existing stock_ledger entries for this bill to avoid duplicates on re-approve
-        await supabase.from("stock_ledger" as any).delete().eq("doc_type", "bill").eq("doc_id", id);
+        await supabase
+          .from("stock_ledger" as any)
+          .delete()
+          .eq("doc_type", "bill")
+          .eq("doc_id", id);
 
         // Get current running totals for each item
         const stockLedgerEntries = [];
+        const whs = warehouses.data ?? [];
         for (const lp of linePayloads) {
           if (lp.ref_type !== "item" || !lp.ref_id) continue;
 
@@ -823,11 +921,20 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             landing_total: (lp.landing_cost || 0) * Number(lp.quantity || 0),
             running_qty: newQty,
             running_amount: newAmount,
+            warehouse_id:
+              (
+                whs.find((w: any) => w.name === lp._warehouse_name) ||
+                whs.find((w: any) => w.id === lp.warehouse_id)
+              )?.id ||
+              lp.warehouse_id ||
+              null,
           });
         }
 
         if (stockLedgerEntries.length > 0) {
-          const { error: ledgerErr } = await supabase.from("stock_ledger" as any).insert(stockLedgerEntries as never);
+          const { error: ledgerErr } = await supabase
+            .from("stock_ledger" as any)
+            .insert(stockLedgerEntries as never);
           if (ledgerErr) {
             console.error("Stock ledger entry failed:", ledgerErr);
           }
@@ -869,7 +976,13 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
         const table = isFixedAssets ? "fixed_assets" : "items";
         const codeField = isFixedAssets ? "asset_code" : "item_code";
         const nameField = isFixedAssets ? "asset_name" : "item_name";
-        const label = isFixedAssets ? "fixed assets" : isServices ? "services" : billTypeRef.current === "other_items" ? "other items" : "inventory";
+        const label = isFixedAssets
+          ? "fixed assets"
+          : isServices
+            ? "services"
+            : billTypeRef.current === "other_items"
+              ? "other items"
+              : "inventory";
         const masterRoute = isFixedAssets ? "/masters/fixed-assets" : "/masters/items";
 
         const allowedIndices = vars.lineIndicesToSync
@@ -881,25 +994,40 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
           let updated = 0;
 
           // ── 1. Increment qty for MATCHED lines ──
-          const matched = lines.filter((l, idx) => l.ref_id && l.name.trim() && allowedIndices.has(idx));
-          for (const line of matched) {
+          const matchedWithIndex = lines
+            .map((l, idx) => ({ ...l, _originalIdx: idx }))
+            .filter((l) => l.ref_id && l.name.trim() && allowedIndices.has(l._originalIdx));
+
+          for (const line of matchedWithIndex) {
             const { data: item } = await supabase
               .from(table)
-              .select("id, qty")
+              .select(`id, qty, ${codeField}`)
               .eq("id", line.ref_id!)
               .maybeSingle();
             if (item) {
               const newQty = Number(item.qty || 0) + Number(line.quantity || 0);
+              const updatePayload: any = { qty: newQty };
+              if (billTypeRef.current === "other_items") updatePayload.is_inventory = false;
+              if (line.code && !item[codeField]) updatePayload[codeField] = line.code;
+              if (opts.warehouseMap && opts.warehouseMap[line._originalIdx]) {
+                updatePayload.warehouse = opts.warehouseMap[line._originalIdx];
+                updatePayload.warehouse_id = opts.warehouseMap[line._originalIdx];
+              }
+              if (opts.ragMap && opts.ragMap[line._originalIdx]) {
+                updatePayload.rag_id = opts.ragMap[line._originalIdx];
+              }
               await supabase
                 .from(table)
-                .update({ qty: newQty, ...(billTypeRef.current === "other_items" ? { is_inventory: false } : {}) } as never)
+                .update(updatePayload as never)
                 .eq("id", item.id);
               updated++;
             }
           }
 
           // ── 2. Create or update UNMATCHED lines ──
-          const unmatched = lines.filter((l, idx) => !l.ref_id && l.name.trim() && allowedIndices.has(idx));
+          const unmatched = lines.filter(
+            (l, idx) => !l.ref_id && l.name.trim() && allowedIndices.has(idx),
+          );
           for (const line of unmatched) {
             const autoCode = (line.code || line.name)
               .trim()
@@ -918,8 +1046,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               .or(`${codeField}.eq.${autoCode},${nameField}.eq.${line.name.trim()}`);
 
             let existing = isFixedAssets
-              ? existingCandidates?.[0] ?? null
-              : (existingCandidates as any)?.find((r: any) => r.is_service === isServices) ?? null;
+              ? (existingCandidates?.[0] ?? null)
+              : ((existingCandidates as any)?.find((r: any) => r.is_service === isServices) ??
+                null);
 
             if (!existing && !isFixedAssets) {
               const fuzzyCandidates = await supabase
@@ -927,17 +1056,22 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 .select("id, qty, is_service, item_name")
                 .like("item_name", `%${line.name.trim().split(/\s+/)[0]}%`);
               const candidates = (fuzzyCandidates.data ?? []) as any[];
-              existing = candidates.find((r) =>
-                r.is_service === isServices &&
-                normalizedName(r.item_name).replace(/\s+/g, " ") === normalizedInput
-              ) ?? null;
+              existing =
+                candidates.find(
+                  (r) =>
+                    r.is_service === isServices &&
+                    normalizedName(r.item_name).replace(/\s+/g, " ") === normalizedInput,
+                ) ?? null;
             }
 
             if (existing) {
               const newQty = Number(existing.qty || 0) + Number(line.quantity || 1);
               await supabase
                 .from(table)
-                .update({ qty: newQty, ...(billTypeRef.current === "other_items" ? { is_inventory: false } : {}) } as never)
+                .update({
+                  qty: newQty,
+                  ...(billTypeRef.current === "other_items" ? { is_inventory: false } : {}),
+                } as never)
                 .eq("id", existing.id);
               updated++;
             } else {
@@ -961,9 +1095,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 payload.total_cost = computeLineAmount(line.quantity, line.per_unit);
                 payload.category = "Other";
               }
-              const { error } = await supabase
-                .from(table)
-                .insert(payload as never);
+              const { error } = await supabase.from(table).insert(payload as never);
               if (!error) created++;
             }
           }
@@ -977,7 +1109,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
           // ── 3. Redirect to master page if user chose "Confirm & Edit in Item Master" ──
           if (vars.redirectToMasters && billId) {
-            toast.info("Redirecting to Item Master — edit details, then click 'Back to Bill' to return.");
+            toast.info(
+              "Redirecting to Item Master — edit details, then click 'Back to Bill' to return.",
+            );
             navigate({
               to: masterRoute,
               search: { returnBillId: billId },
@@ -1019,7 +1153,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
   const isApproved = existing?.status === "approved";
 
   const vendorSublabel = vendorRow
-    ? [(vendorRow.vat_number as string), (vendorRow.pan as string), (vendorRow.state as string)]
+    ? [vendorRow.vat_number as string, vendorRow.pan as string, vendorRow.state as string]
         .filter(Boolean)
         .join(" · ")
     : "";
@@ -1095,7 +1229,11 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 <Label className="mb-1 block text-xs font-medium text-muted-foreground">
                   Bill Type
                 </Label>
-                <Select value={billType} onValueChange={(v) => setBillType(v as BillType)} disabled={!isNew}>
+                <Select
+                  value={billType}
+                  onValueChange={(v) => setBillType(v as BillType)}
+                  disabled={!isNew}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -1225,23 +1363,41 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
                       <p className="font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-1">
-                        <CheckCircle2 className="h-4 w-4 text-amber-600" /> Extracted Vendor: {extractedVendorData.name}
+                        <CheckCircle2 className="h-4 w-4 text-amber-600" /> Extracted Vendor:{" "}
+                        {extractedVendorData.name}
                       </p>
                       <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
                         {[
-                          extractedVendorData.vat_number && `VAT: ${extractedVendorData.vat_number}`,
+                          extractedVendorData.vat_number &&
+                            `VAT: ${extractedVendorData.vat_number}`,
                           extractedVendorData.pan && `PAN: ${extractedVendorData.pan}`,
                           extractedVendorData.phone && `Phone: ${extractedVendorData.phone}`,
                           extractedVendorData.email && `Email: ${extractedVendorData.email}`,
-                        ].filter(Boolean).join(" · ")}
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" type="button" onClick={handleCreateExtractedVendor} disabled={creatingVendor}>
-                        {creatingVendor ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+                      <Button
+                        size="sm"
+                        type="button"
+                        onClick={handleCreateExtractedVendor}
+                        disabled={creatingVendor}
+                      >
+                        {creatingVendor ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5 mr-1" />
+                        )}
                         Add to Vendor Master
                       </Button>
-                      <Button size="sm" type="button" variant="outline" onClick={() => setExtractedVendorData(null)}>
+                      <Button
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => setExtractedVendorData(null)}
+                      >
                         Skip
                       </Button>
                     </div>
@@ -1253,7 +1409,11 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
             {/* Bill Fields */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label="Bill Number">
-                <Input value={billNumber} onChange={(e) => setBillNumber(e.target.value)} disabled={isApproved} />
+                <Input
+                  value={billNumber}
+                  onChange={(e) => setBillNumber(e.target.value)}
+                  disabled={isApproved}
+                />
               </Field>
               <Field label={`Invoice Date (${companyDateFormat.toUpperCase()})`}>
                 {companyDateFormat === "bs" ? (
@@ -1273,7 +1433,11 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                 )}
               </Field>
               <Field label="PO Number">
-                <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} disabled={isApproved} />
+                <Input
+                  value={poNumber}
+                  onChange={(e) => setPoNumber(e.target.value)}
+                  disabled={isApproved}
+                />
               </Field>
               <Field label="Internal Bill Number">
                 <Input
@@ -1306,274 +1470,381 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
 
         {/* Segment 2: Line Items, Totals & Notes */}
         {(isApproved || formSegment === 2) && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              {!isApproved && formSegment === 2 && (
-                <Button size="sm" variant="ghost" onClick={() => setFormSegment(1)}>
-                  ← Back
-                </Button>
-              )}
-              <CardTitle className="text-base">Line Items — {TYPE_LABEL[billType]}</CardTitle>
-            </div>
-            <Button size="sm" variant="outline" onClick={addLine} disabled={isApproved}>
-              <Plus className="mr-1 h-4 w-4" /> Add Line
-            </Button>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table className="table-fixed min-w-[1200px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[50px]">S.No</TableHead>
-                  <TableHead className="w-[260px]">
-                    {billType === "fixed_assets" ? "Asset" : billType === "services" ? "Service" : "Item"}
-                  </TableHead>
-                  <TableHead className="w-[90px]">Code</TableHead>
-                  <TableHead className="w-[80px]">UOM</TableHead>
-                  <TableHead className="w-[100px] text-right">Qty</TableHead>
-                  <TableHead className="w-[110px] text-right">Per Unit</TableHead>
-                  <TableHead className="w-[80px] text-right">{taxType === "pan" ? "Tax %" : "VAT %"}</TableHead>
-                  <TableHead className="w-[110px]">Lot Number</TableHead>
-                  <TableHead className="w-[140px]">Expiry Date</TableHead>
-                  <TableHead className="w-[110px] text-right">Line Amount</TableHead>
-                  <TableHead className="w-[40px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {lines.map((l, i) => {
-                  const lineAmt = computeLineAmount(l.quantity, l.per_unit);
-                  return (
-                    <TableRow key={i}>
-                      <TableCell className="w-[50px] text-muted-foreground align-middle">{l.sno}</TableCell>
-                      <TableCell className="w-[260px] align-middle">
-                        <div className="space-y-1">
-                          <EntityCombobox
-                            value={l.ref_id}
-                            onChange={(id, row) => {
-                              if (row) {
-                                updateLine(i, {
-                                  ref_id: id,
-                                  code: (row.item_code || row.asset_code || "") as string,
-                                  name: (row.item_name || row.asset_name || "") as string,
-                                  uom: (row.uom as string) || "NOS",
-                                  per_unit: Number(row.default_rate) || l.per_unit,
-                                  vat_rate: Number(row.vat_rate) || l.vat_rate,
-                                  lot_number: (row.lot_number as string) || l.lot_number,
-                                  expiry_date: (row.expiry_date as string) || l.expiry_date,
-                                });
-                              } else {
-                                updateLine(i, { ref_id: null });
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div className="flex items-center gap-2">
+                {!isApproved && formSegment === 2 && (
+                  <Button size="sm" variant="ghost" onClick={() => setFormSegment(1)}>
+                    ← Back
+                  </Button>
+                )}
+                <CardTitle className="text-base">Line Items — {TYPE_LABEL[billType]}</CardTitle>
+              </div>
+              <Button size="sm" variant="outline" onClick={addLine} disabled={isApproved}>
+                <Plus className="mr-1 h-4 w-4" /> Add Line
+              </Button>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table className="table-fixed min-w-[1200px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[50px]">S.No</TableHead>
+                    <TableHead className="w-[260px]">
+                      {billType === "fixed_assets"
+                        ? "Asset"
+                        : billType === "services"
+                          ? "Service"
+                          : "Item"}
+                    </TableHead>
+                    <TableHead className="w-[80px]">UOM</TableHead>
+                    <TableHead className="w-[100px] text-right">Qty</TableHead>
+                    <TableHead className="w-[110px] text-right">Per Unit</TableHead>
+                    <TableHead className="w-[80px] text-right">
+                      {taxType === "pan" ? "Tax %" : "VAT %"}
+                    </TableHead>
+                    {billType !== "services" && (
+                      <TableHead className="w-[110px]">
+                        {billType === "items" ? "Lot / Expiry" : "Lot Number"}
+                      </TableHead>
+                    )}
+                    <TableHead className="w-[110px] text-right">Line Amount</TableHead>
+                    <TableHead className="w-[40px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map((l, i) => {
+                    const lineAmt = computeLineAmount(l.quantity, l.per_unit);
+                    return (
+                      <TableRow key={i}>
+                        <TableCell className="w-[50px] text-muted-foreground align-middle">
+                          {l.sno}
+                        </TableCell>
+                        <TableCell className="w-[260px] align-middle">
+                          <div className="space-y-1">
+                            {(() => {
+                              const masterItem = l.ref_id
+                                ? itemOptions.find((o) => o.id === l.ref_id)?.raw
+                                : null;
+                              const masterHasCode = masterItem
+                                ? !!(masterItem.item_code || masterItem.asset_code)
+                                : false;
+                              return (
+                                <Input
+                                  className={`w-full font-mono text-xs h-7 ${l.ref_id && l.code ? "bg-green-50 border-green-300 text-green-800" : ""}`}
+                                  value={l.code}
+                                  placeholder="Code"
+                                  onChange={(e) => updateLine(i, { code: e.target.value })}
+                                  title={
+                                    l.ref_id && masterHasCode
+                                      ? "Auto-filled from Item Master"
+                                      : undefined
+                                  }
+                                  disabled={isApproved || (!!l.ref_id && masterHasCode)}
+                                />
+                              );
+                            })()}
+                            <EntityCombobox
+                              value={l.ref_id}
+                              onChange={(id, row) => {
+                                if (row) {
+                                  updateLine(i, {
+                                    ref_id: id,
+                                    code: (row.item_code || row.asset_code || "") as string,
+                                    name: (row.item_name || row.asset_name || "") as string,
+                                    uom: (row.uom as string) || "NOS",
+                                    per_unit: Number(row.default_rate) || l.per_unit,
+                                    vat_rate: Number(row.vat_rate) || l.vat_rate,
+                                    lot_number: (row.lot_number as string) || l.lot_number,
+                                    expiry_date: (row.expiry_date as string) || l.expiry_date,
+                                    warehouse: (row.warehouse as string) || "Main Warehouse",
+                                  });
+                                } else {
+                                  updateLine(i, { ref_id: null });
+                                }
+                              }}
+                              options={itemOptions}
+                              placeholder={l.name || "Select…"}
+                              addLabel={
+                                billType === "fixed_assets"
+                                  ? "Add new fixed asset"
+                                  : billType === "services"
+                                    ? "Add new service"
+                                    : "Add new item"
                               }
-                            }}
-                            options={itemOptions}
-                            placeholder={l.name || "Select…"}
-                            addLabel={
-                              billType === "fixed_assets"
-                                ? "Add new fixed asset"
-                                : billType === "services"
-                                  ? "Add new service"
-                                  : "Add new item"
-                            }
-                            table={billType === "fixed_assets" ? "fixed_assets" : "items"}
-                            schema={billType === "fixed_assets" ? fixedAssetSchema : itemSchema}
-                            fields={billType === "fixed_assets" ? fixedAssetFields : itemFields}
-                            nameKey={billType === "fixed_assets" ? "asset_name" : "item_name"}
+                              table={billType === "fixed_assets" ? "fixed_assets" : "items"}
+                              schema={billType === "fixed_assets" ? fixedAssetSchema : itemSchema}
+                              fields={billType === "fixed_assets" ? fixedAssetFields : itemFields}
+                              nameKey={billType === "fixed_assets" ? "asset_name" : "item_name"}
+                              disabled={isApproved}
+                            />
+                            {billType === "items" && (
+                              <div className="mt-1 flex items-center">
+                                <span className="h-6 w-[120px] text-[10px] bg-transparent text-blue-600 font-mono px-1 flex items-center">
+                                  {l.warehouse || "Main Warehouse"}
+                                </span>
+                              </div>
+                            )}
+                            {!l.ref_id &&
+                              l.name &&
+                              l.name.trim() !== "" &&
+                              billType !== "fixed_assets" && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMasterFormLineIndex(i);
+                                    setMasterFormOpen(true);
+                                  }}
+                                  className="text-[10px] text-emerald-600 hover:text-emerald-700 font-semibold mt-1 hover:underline text-left block"
+                                >
+                                  + Add "{l.name}" to Masters
+                                </button>
+                              )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="w-[80px] align-middle">
+                          <Input
+                            className="w-full text-xs"
+                            value={l.uom}
+                            onChange={(e) => updateLine(i, { uom: e.target.value })}
                             disabled={isApproved}
                           />
-                          {!l.ref_id && l.name && l.name.trim() !== "" && billType !== "fixed_assets" && (
-                            <button
-                              type="button"
+                        </TableCell>
+                        <TableCell className="w-[100px] align-middle">
+                          <Input
+                            type="number"
+                            step="any"
+                            className="w-full text-right"
+                            value={l.quantity}
+                            onChange={(e) =>
+                              updateLine(i, { quantity: toNumber(e.target.value, 0) })
+                            }
+                            disabled={isApproved}
+                          />
+                        </TableCell>
+                        <TableCell className="w-[110px] align-middle">
+                          <Input
+                            type="number"
+                            step="any"
+                            className="w-full text-right"
+                            value={l.per_unit}
+                            onChange={(e) =>
+                              updateLine(i, { per_unit: toNumber(e.target.value, 0) })
+                            }
+                            disabled={isApproved}
+                          />
+                        </TableCell>
+                        <TableCell className="w-[80px] align-middle">
+                          <Input
+                            type="number"
+                            step="any"
+                            className="w-full text-right"
+                            value={l.vat_rate}
+                            onChange={(e) =>
+                              updateLine(i, { vat_rate: toNumber(e.target.value, 0) })
+                            }
+                            disabled={isApproved}
+                          />
+                        </TableCell>
+                        {billType !== "services" && (
+                          <TableCell className="w-[110px] align-middle">
+                            <div className="space-y-1">
+                              <Input
+                                className="w-full font-mono text-xs"
+                                placeholder="Lot No."
+                                value={l.lot_number}
+                                onChange={(e) => updateLine(i, { lot_number: e.target.value })}
+                                disabled={isApproved}
+                              />
+                              {billType === "items" && (
+                                <Input
+                                  type="date"
+                                  className="w-full text-xs h-7"
+                                  value={l.expiry_date || ""}
+                                  onChange={(e) => updateLine(i, { expiry_date: e.target.value })}
+                                  disabled={isApproved}
+                                />
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
+                        <TableCell className="w-[110px] text-right font-medium align-middle">
+                          {num(lineAmt)}
+                        </TableCell>
+                        <TableCell className="w-[40px] align-middle">
+                          {!l.ref_id &&
+                          l.name.trim() &&
+                          !isApproved &&
+                          billType !== "fixed_assets" ? (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-primary"
+                              title="Add this line item to Masters"
                               onClick={() => {
                                 setMasterFormLineIndex(i);
                                 setMasterFormOpen(true);
                               }}
-                              className="text-[10px] text-emerald-600 hover:text-emerald-700 font-semibold mt-1 hover:underline text-left block"
                             >
-                              + Add "{l.name}" to Masters
-                            </button>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="w-[90px] align-middle">
-                        <Input
-                          className={`w-full font-mono text-xs ${l.ref_id && l.code ? "bg-green-50 border-green-300 text-green-800" : ""}`}
-                          value={l.code}
-                          onChange={(e) => updateLine(i, { code: e.target.value })}
-                          title={l.ref_id && l.code ? "Auto-filled from Item Master" : undefined}
-                          disabled={isApproved}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[80px] align-middle">
-                        <Input
-                          className="w-full text-xs"
-                          value={l.uom}
-                          onChange={(e) => updateLine(i, { uom: e.target.value })}
-                          disabled={isApproved}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[100px] align-middle">
-                        <Input
-                          type="number"
-                          step="any"
-                          className="w-full text-right"
-                          value={l.quantity}
-                          onChange={(e) =>
-                            updateLine(i, { quantity: toNumber(e.target.value, 0) })
-                          }
-                          disabled={isApproved}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[110px] align-middle">
-                        <Input
-                          type="number"
-                          step="any"
-                          className="w-full text-right"
-                          value={l.per_unit}
-                          onChange={(e) =>
-                            updateLine(i, { per_unit: toNumber(e.target.value, 0) })
-                          }
-                          disabled={isApproved}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[80px] align-middle">
-                        <Input
-                          type="number"
-                          step="any"
-                          className="w-full text-right"
-                          value={l.vat_rate}
-                          onChange={(e) =>
-                            updateLine(i, { vat_rate: toNumber(e.target.value, 0) })
-                          }
-                          disabled={isApproved}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[110px] align-middle">
-                        <Input
-                          className="w-full font-mono text-xs"
-                          value={l.lot_number}
-                          onChange={(e) => updateLine(i, { lot_number: e.target.value })}
-                          disabled={isApproved}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[140px] align-middle">
-                        <Input
-                          type="date"
-                          className="w-full text-xs"
-                          value={l.expiry_date}
-                          onChange={(e) => updateLine(i, { expiry_date: e.target.value })}
-                          disabled={isApproved}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[110px] text-right font-medium align-middle">
-                        {num(lineAmt)}
-                      </TableCell>
-                      <TableCell className="w-[40px] align-middle">
-                        {!l.ref_id && l.name.trim() && !isApproved && billType !== "fixed_assets" ? (
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          ) : null}
                           <Button
                             size="icon"
                             variant="ghost"
-                            className="h-7 w-7 text-primary"
-                            title="Add this line item to Masters"
-                            onClick={() => {
-                              setMasterFormLineIndex(i);
-                              setMasterFormOpen(true);
-                            }}
+                            onClick={() => removeLine(i)}
+                            disabled={lines.length === 1 || isApproved}
                           >
-                            <Plus className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
-                        ) : null}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => removeLine(i)}
-                          disabled={lines.length === 1 || isApproved}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
 
-          {/* Pro-rata Allocation & Landing Cost Table */}
-          {lines.length > 0 && billType !== "services" && (() => {
-            const subtotal = lines.reduce((s, l) => s + (Number(l.quantity)||0) * (Number(l.per_unit)||0), 0);
-            const disc = Number(discount) || 0;
-            const trans = Number(transportation) || 0;
-            const other = Number(otherCharges) || 0;
-            return (
-              <div className="border-t">
-                <CardContent className="pt-6">
-                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Pro-rata Allocation &amp; Landing Cost</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b bg-muted/40 text-right">
-                          <th className="py-2 pl-2 text-left">Item</th>
-                          <th className="px-2 py-2">Line (ex-VAT)</th>
-                          <th className="px-2 py-2">−Discount</th>
-                          <th className="px-2 py-2">+Transport</th>
-                          <th className="px-2 py-2">+Other</th>
-                          <th className="px-2 py-2">Gross</th>
-                          <th className="px-2 py-2">VAT</th>
-                          <th className="px-2 py-2">Landing</th>
-                          <th className="pr-2 py-2">Unit Cost</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lines.map((l, i) => {
-                          const lineAmt = (Number(l.quantity)||0) * (Number(l.per_unit)||0);
-                          const prop = subtotal > 0 ? lineAmt / subtotal : 0;
-                          const lineDisc = prop * disc;
-                          const lineTrans = prop * trans;
-                          const lineOther = prop * other;
-                          const gross = lineAmt - lineDisc + lineTrans + lineOther;
-                          const vatRate = Number(l.vat_rate) || 0;
-                          const vat = gross * vatRate / 100;
-                          const landing = gross;
-                          const qty = Number(l.quantity) || 1;
-                          const unitCost = landing / qty;
-                          const fmt = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                          return (
-                            <tr key={i} className="border-b text-right hover:bg-muted/20">
-                              <td className="py-1.5 pl-2 text-left font-medium">{l.name || `Item ${i+1}`}</td>
-                              <td className="px-2 py-1.5">{fmt(lineAmt)}</td>
-                              <td className="px-2 py-1.5 text-red-600">−{fmt(lineDisc)}</td>
-                              <td className="px-2 py-1.5 text-emerald-600">+{fmt(lineTrans)}</td>
-                              <td className="px-2 py-1.5 text-blue-600">+{fmt(lineOther)}</td>
-                              <td className="px-2 py-1.5 font-semibold">{fmt(gross)}</td>
-                              <td className="px-2 py-1.5 text-amber-600">{vatRate}%  +{fmt(vat)}</td>
-                              <td className="px-2 py-1.5 font-semibold">{fmt(landing)}</td>
-                              <td className="pr-2 py-1.5 font-bold text-primary">{fmt(unitCost)}</td>
+            {/* Pro-rata Allocation & Landing Cost Table */}
+            {lines.length > 0 &&
+              billType !== "services" &&
+              (() => {
+                const subtotal = lines.reduce(
+                  (s, l) => s + (Number(l.quantity) || 0) * (Number(l.per_unit) || 0),
+                  0,
+                );
+                const disc = Number(discount) || 0;
+                const trans = Number(transportation) || 0;
+                const other = Number(otherCharges) || 0;
+                return (
+                  <div className="border-t">
+                    <CardContent className="pt-6">
+                      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                        Pro-rata Allocation &amp; Landing Cost
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b bg-muted/40 text-right">
+                              <th className="py-2 pl-2 text-left">Item</th>
+                              <th className="px-2 py-2">Line (ex-VAT)</th>
+                              <th className="px-2 py-2">−Discount</th>
+                              <th className="px-2 py-2">+Transport</th>
+                              <th className="px-2 py-2">+Other</th>
+                              <th className="px-2 py-2">Gross</th>
+                              <th className="px-2 py-2">VAT</th>
+                              <th className="px-2 py-2">Landing</th>
+                              <th className="pr-2 py-2">Unit Cost</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                          </thead>
+                          <tbody>
+                            {lines.map((l, i) => {
+                              const lineAmt = (Number(l.quantity) || 0) * (Number(l.per_unit) || 0);
+                              const prop = subtotal > 0 ? lineAmt / subtotal : 0;
+                              const lineDisc = prop * disc;
+                              const lineTrans = prop * trans;
+                              const lineOther = prop * other;
+                              const gross = lineAmt - lineDisc + lineTrans + lineOther;
+                              const vatRate = Number(l.vat_rate) || 0;
+                              const vat = (gross * vatRate) / 100;
+                              const landing = gross;
+                              const qty = Number(l.quantity) || 1;
+                              const unitCost = landing / qty;
+                              const fmt = (n: number) =>
+                                n.toLocaleString("en-IN", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                });
+                              return (
+                                <tr key={i} className="border-b text-right hover:bg-muted/20">
+                                  <td className="py-1.5 pl-2 text-left font-medium">
+                                    {l.name || `Item ${i + 1}`}
+                                  </td>
+                                  <td className="px-2 py-1.5">{fmt(lineAmt)}</td>
+                                  <td className="px-2 py-1.5 text-red-600">−{fmt(lineDisc)}</td>
+                                  <td className="px-2 py-1.5 text-emerald-600">
+                                    +{fmt(lineTrans)}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-blue-600">+{fmt(lineOther)}</td>
+                                  <td className="px-2 py-1.5 font-semibold">{fmt(gross)}</td>
+                                  <td className="px-2 py-1.5 text-amber-600">
+                                    {vatRate}% +{fmt(vat)}
+                                  </td>
+                                  <td className="px-2 py-1.5 font-semibold">{fmt(landing)}</td>
+                                  <td className="pr-2 py-1.5 font-bold text-primary">
+                                    {fmt(unitCost)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
                   </div>
-                </CardContent>
-              </div>
-            );
-          })()}
+                );
+              })()}
 
-          {/* Totals Section */}
-          <div className="border-t">
-            <CardContent className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-2">
-              <div className="space-y-3">
-                <TotalRow label="Taxable Amount (ex-VAT)" value={inr(totals.taxable_amount)} />
-                <NumField label="Exempted Amount" value={exempted} onChange={setExempted} disabled={isApproved} />
-                <NumField label="Discount" value={discount} onChange={setDiscount} disabled={isApproved} />
-                {!isServiceMode ? (
+            {/* Totals Section */}
+            <div className="border-t">
+              <CardContent className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-2">
+                <div className="space-y-3">
+                  <TotalRow label="Taxable Amount (ex-VAT)" value={inr(totals.taxable_amount)} />
+                  <NumField
+                    label="Exempted Amount"
+                    value={exempted}
+                    onChange={setExempted}
+                    disabled={isApproved}
+                  />
+                  <NumField
+                    label="Discount"
+                    value={discount}
+                    onChange={setDiscount}
+                    disabled={isApproved}
+                  />
+                  {!isServiceMode ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-sm">Transportation (ex-VAT)</Label>
+                        <div className="flex items-center gap-1">
+                          <Select
+                            value={String(transportVatRate)}
+                            onValueChange={(v) => setTransportVatRate(Number(v))}
+                            disabled={isApproved}
+                          >
+                            <SelectTrigger className="h-8 w-20 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">0%</SelectItem>
+                              <SelectItem value="5">5%</SelectItem>
+                              <SelectItem value="13">13%</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            type="number"
+                            step="any"
+                            className="w-28 text-right text-sm"
+                            value={transportation}
+                            onChange={(e) => setTransportation(Number(e.target.value) || 0)}
+                            disabled={isApproved}
+                          />
+                        </div>
+                      </div>
+                      {transportVatRate > 0 && (
+                        <div className="flex justify-end text-xs text-muted-foreground pr-1">
+                          Transport VAT ({transportVatRate}%):{" "}
+                          {inr(((Number(transportation) || 0) * transportVatRate) / 100)}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="text-sm">Transportation (ex-VAT)</Label>
+                      <Label className="text-sm">Other Charges (ex-VAT)</Label>
                       <div className="flex items-center gap-1">
                         <Select
-                          value={String(transportVatRate)}
-                          onValueChange={(v) => setTransportVatRate(Number(v))}
+                          value={String(otherVatRate)}
+                          onValueChange={(v) => setOtherVatRate(Number(v))}
                           disabled={isApproved}
                         >
                           <SelectTrigger className="h-8 w-20 text-xs">
@@ -1589,104 +1860,70 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                           type="number"
                           step="any"
                           className="w-28 text-right text-sm"
-                          value={transportation}
-                          onChange={(e) => setTransportation(Number(e.target.value) || 0)}
+                          value={otherCharges}
+                          onChange={(e) => setOtherCharges(Number(e.target.value) || 0)}
                           disabled={isApproved}
                         />
                       </div>
                     </div>
-                    {transportVatRate > 0 && (
+                    {otherVatRate > 0 && (
                       <div className="flex justify-end text-xs text-muted-foreground pr-1">
-                        Transport VAT ({transportVatRate}%): {inr((Number(transportation)||0) * transportVatRate / 100)}
+                        Other Charges VAT ({otherVatRate}%):{" "}
+                        {inr(((Number(otherCharges) || 0) * otherVatRate) / 100)}
                       </div>
                     )}
                   </div>
-                ) : null}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label className="text-sm">Other Charges (ex-VAT)</Label>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label className="text-sm">{taxType === "pan" ? "Tax" : "VAT"} (auto)</Label>
                     <div className="flex items-center gap-1">
-                      <Select
-                        value={String(otherVatRate)}
-                        onValueChange={(v) => setOtherVatRate(Number(v))}
-                        disabled={isApproved}
-                      >
-                        <SelectTrigger className="h-8 w-20 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="0">0%</SelectItem>
-                          <SelectItem value="5">5%</SelectItem>
-                          <SelectItem value="13">13%</SelectItem>
-                        </SelectContent>
-                      </Select>
                       <Input
                         type="number"
                         step="any"
-                        className="w-28 text-right text-sm"
-                        value={otherCharges}
-                        onChange={(e) => setOtherCharges(Number(e.target.value) || 0)}
+                        className="w-36 text-right"
+                        value={manualVat !== null ? manualVat : totals.vat_amount}
+                        onChange={(e) => setManualVat(toNumber(e.target.value, 0))}
                         disabled={isApproved}
                       />
+                      {manualVat !== null && (
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground shrink-0"
+                          onClick={() => setManualVat(null)}
+                          title="Reset to auto-calculated VAT"
+                        >
+                          ↺
+                        </button>
+                      )}
                     </div>
                   </div>
-                  {otherVatRate > 0 && (
-                    <div className="flex justify-end text-xs text-muted-foreground pr-1">
-                      Other Charges VAT ({otherVatRate}%): {inr((Number(otherCharges)||0) * otherVatRate / 100)}
+                  <div className="mt-6 rounded-md border border-primary/30 bg-primary/5 p-4">
+                    <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                      Final Bill Amount
                     </div>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <Label className="text-sm">{taxType === "pan" ? "Tax" : "VAT"} (auto)</Label>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="number"
-                      step="any"
-                      className="w-36 text-right"
-                      value={manualVat !== null ? manualVat : totals.vat_amount}
-                      onChange={(e) => setManualVat(toNumber(e.target.value, 0))}
-                      disabled={isApproved}
-                    />
-                    {manualVat !== null && (
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground shrink-0"
-                        onClick={() => setManualVat(null)}
-                        title="Reset to auto-calculated VAT"
-                      >
-                        ↺
-                      </button>
-                    )}
+                    <div className="mt-1 text-3xl font-bold text-primary">
+                      {inr(totals.final_amount)}
+                    </div>
                   </div>
                 </div>
-                <div className="mt-6 rounded-md border border-primary/30 bg-primary/5 p-4">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Final Bill Amount
-                  </div>
-                  <div className="mt-1 text-3xl font-bold text-primary">
-                    {inr(totals.final_amount)}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </div>
+              </CardContent>
+            </div>
 
-          {/* Notes Section */}
-          <div className="border-t">
-            <CardContent className="pt-6">
-              <Label className="mb-2 block text-sm font-medium">Notes</Label>
-              <Textarea
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Internal notes about this bill…"
-                disabled={isApproved}
-              />
-            </CardContent>
-          </div>
-        </Card>
+            {/* Notes Section */}
+            <div className="border-t">
+              <CardContent className="pt-6">
+                <Label className="mb-2 block text-sm font-medium">Notes</Label>
+                <Textarea
+                  rows={3}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Internal notes about this bill…"
+                  disabled={isApproved}
+                />
+              </CardContent>
+            </div>
+          </Card>
         )}
       </div>
 
@@ -1698,75 +1935,80 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               <CheckCircle2 className="h-5 w-5 text-primary" /> Confirm Master Updates on Approval
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground dark:text-zinc-400">
-              Review vendor &amp; item records to add or update in Master database when approving Bill #{billNumber || internalBillNumber || ""}.
+              Review vendor &amp; item records to add or update in Master database when approving
+              Bill #{billNumber || internalBillNumber || ""}.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             {/* Inline Master Form (only for fixed assets, other items use ItemFormDialog modal) */}
-            {editingMasterItemIndex !== null && billType === "fixed_assets" && (() => {
-              const line = lines[editingMasterItemIndex];
-              if (!line) return null;
+            {editingMasterItemIndex !== null &&
+              billType === "fixed_assets" &&
+              (() => {
+                const line = lines[editingMasterItemIndex];
+                if (!line) return null;
 
-              const table = "fixed_assets";
-              const autoCode = (line.code || line.name)
-                .trim()
-                .toUpperCase()
-                .replace(/[^A-Z0-9 ]/g, "")
-                .replace(/\s+/g, "-")
-                .slice(0, 50);
+                const table = "fixed_assets";
+                const autoCode = (line.code || line.name)
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9 ]/g, "")
+                  .replace(/\s+/g, "-")
+                  .slice(0, 50);
 
-              const initialMasterValues = {
-                asset_code: autoCode,
-                asset_name: line.name.trim(),
-                uom: line.uom || "NOS",
-                category: "Other",
-                purchase_date: invoiceDate || new Date().toISOString().slice(0, 10),
-                purchase_cost: line.per_unit,
-                total_cost: computeLineAmount(line.quantity, line.per_unit),
-                qty: Number(line.quantity) || 1,
-              };
+                const initialMasterValues = {
+                  asset_code: autoCode,
+                  asset_name: line.name.trim(),
+                  uom: line.uom || "NOS",
+                  category: "Other",
+                  purchase_date: invoiceDate || new Date().toISOString().slice(0, 10),
+                  purchase_cost: line.per_unit,
+                  total_cost: computeLineAmount(line.quantity, line.per_unit),
+                  qty: Number(line.quantity) || 1,
+                };
 
-              return (
-                <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/40 p-3 space-y-2">
-                  <div className="flex items-center justify-between border-b border-blue-200 dark:border-blue-800 pb-1.5">
-                    <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
-                      Edit Asset Details: {line.name}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-[11px] px-2 text-blue-700 dark:text-blue-300"
-                      onClick={() => setEditingMasterItemIndex(null)}
-                    >
-                      Close Form
-                    </Button>
+                return (
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/40 p-3 space-y-2">
+                    <div className="flex items-center justify-between border-b border-blue-200 dark:border-blue-800 pb-1.5">
+                      <span className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                        Edit Asset Details: {line.name}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[11px] px-2 text-blue-700 dark:text-blue-300"
+                        onClick={() => setEditingMasterItemIndex(null)}
+                      >
+                        Close Form
+                      </Button>
+                    </div>
+                    <MasterForm
+                      table={table}
+                      schema={fixedAssetSchema}
+                      fields={fixedAssetFields}
+                      initial={initialMasterValues}
+                      onSaved={(createdRow) => {
+                        toast.success(`Asset "${line.name}" saved to Master!`);
+                        if (createdRow?.id) {
+                          setLines((prev) =>
+                            prev.map((l, i) =>
+                              i === editingMasterItemIndex
+                                ? { ...l, ref_id: createdRow.id as string }
+                                : l,
+                            ),
+                          );
+                        }
+                        setSyncedItemMap((prev) => ({ ...prev, [editingMasterItemIndex]: true }));
+                        setEditingMasterItemIndex(null);
+                        qc.invalidateQueries({ queryKey: [table] });
+                      }}
+                      onCancel={() => setEditingMasterItemIndex(null)}
+                      submitLabel="Save Asset to Master"
+                    />
                   </div>
-                  <MasterForm
-                    table={table}
-                    schema={fixedAssetSchema}
-                    fields={fixedAssetFields}
-                    initial={initialMasterValues}
-                    onSaved={(createdRow) => {
-                      toast.success(`Asset "${line.name}" saved to Master!`);
-                      if (createdRow?.id) {
-                        setLines((prev) =>
-                          prev.map((l, i) =>
-                            i === editingMasterItemIndex ? { ...l, ref_id: createdRow.id as string } : l,
-                          ),
-                        );
-                      }
-                      setSyncedItemMap((prev) => ({ ...prev, [editingMasterItemIndex]: true }));
-                      setEditingMasterItemIndex(null);
-                      qc.invalidateQueries({ queryKey: [table] });
-                    }}
-                    onCancel={() => setEditingMasterItemIndex(null)}
-                    submitLabel="Save Asset to Master"
-                  />
-                </div>
-              );
-            })()}
+                );
+              })()}
 
             {/* Vendor confirmation */}
             {extractedVendorData && !vendorId ? (
@@ -1778,11 +2020,17 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                     onCheckedChange={(c) => setSyncVendorToMaster(!!c)}
                   />
                   <div>
-                    <label htmlFor="sync-vendor-modal" className="font-semibold text-xs cursor-pointer block text-foreground dark:text-zinc-200">
+                    <label
+                      htmlFor="sync-vendor-modal"
+                      className="font-semibold text-xs cursor-pointer block text-foreground dark:text-zinc-200"
+                    >
                       Add Extracted Vendor to Master
                     </label>
                     <p className="text-[11px] text-muted-foreground dark:text-zinc-400 mt-0.5">
-                      {extractedVendorData.name} {extractedVendorData.vat_number ? `(VAT: ${extractedVendorData.vat_number})` : ""}
+                      {extractedVendorData.name}{" "}
+                      {extractedVendorData.vat_number
+                        ? `(VAT: ${extractedVendorData.vat_number})`
+                        : ""}
                     </p>
                   </div>
                 </div>
@@ -1796,7 +2044,9 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
               </Label>
               <div className="max-h-60 overflow-y-auto space-y-2 rounded-md border p-3 bg-card dark:bg-zinc-900/50">
                 {lines.filter((l) => l.name.trim()).length === 0 ? (
-                  <p className="text-xs text-muted-foreground dark:text-zinc-400">No line items in this bill.</p>
+                  <p className="text-xs text-muted-foreground dark:text-zinc-400">
+                    No line items in this bill.
+                  </p>
                 ) : (
                   lines.map((l, idx) => {
                     if (!l.name.trim()) return null;
@@ -1804,7 +2054,10 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                     const isChecked = linesToSyncMaster[idx] ?? true;
 
                     return (
-                      <div key={idx} className="flex items-center justify-between gap-3 border-b border-border/50 pb-2.5 last:border-0 last:pb-0 text-xs">
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-3 border-b border-border/50 pb-2.5 last:border-0 last:pb-0 text-xs"
+                      >
                         <div className="flex items-start gap-2.5 flex-1 min-w-0">
                           <Checkbox
                             id={`sync-line-${idx}`}
@@ -1815,7 +2068,10 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                             className="mt-0.5"
                           />
                           <div className="min-w-0 flex-1">
-                            <label htmlFor={`sync-line-${idx}`} className="font-medium cursor-pointer block truncate text-foreground dark:text-zinc-200">
+                            <label
+                              htmlFor={`sync-line-${idx}`}
+                              className="font-medium cursor-pointer block truncate text-foreground dark:text-zinc-200"
+                            >
                               {l.name}
                             </label>
                             <span className="text-[11px] text-muted-foreground dark:text-zinc-400 block">
@@ -1825,6 +2081,63 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
+                          {!isMatched && billType === "items" && (
+                            <>
+                              <Select
+                                value={linesWarehouseMap[idx] || lines[idx].warehouse || ""}
+                                onValueChange={(v) => {
+                                  setLinesWarehouseMap((prev) => ({ ...prev, [idx]: v }));
+                                  setLinesRagMap((prev) => ({ ...prev, [idx]: "" }));
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-[130px] text-[10px]">
+                                  <SelectValue placeholder="Set Warehouse..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(warehouses.data ?? []).map((wh: any) => (
+                                    <SelectItem key={wh.id} value={wh.id} className="text-[11px]">
+                                      {wh.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {(linesWarehouseMap[idx] || lines[idx].warehouse_id) && (
+                                <Select
+                                  value={linesRagMap[idx] || ""}
+                                  onValueChange={(v) =>
+                                    setLinesRagMap((prev) => ({ ...prev, [idx]: v }))
+                                  }
+                                >
+                                  <SelectTrigger className="h-7 w-[120px] text-[10px]">
+                                    <SelectValue placeholder="RAG (optional)" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(warehouseRags.data ?? [])
+                                      .filter(
+                                        (r: any) =>
+                                          r.warehouse_id ===
+                                          (linesWarehouseMap[idx] || lines[idx].warehouse_id),
+                                      )
+                                      .map((rag: any) => (
+                                        <SelectItem
+                                          key={rag.id}
+                                          value={rag.id}
+                                          className="text-[11px]"
+                                        >
+                                          {rag.code ? `${rag.code} - ${rag.name}` : rag.name}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            </>
+                          )}
+                          {isMatched && billType === "items" && (
+                            <span className="text-[10px] text-muted-foreground dark:text-zinc-400">
+                              {lines[idx].warehouse || "Main Warehouse"}
+                              {lines[idx].rag_id ? ` · RAG` : ""}
+                            </span>
+                          )}
                           <Badge
                             variant={isMatched ? "outline" : "default"}
                             className={`text-[10px] ${
@@ -1886,7 +2199,13 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                   .filter(([, checked]) => checked)
                   .map(([idxStr]) => Number(idxStr));
 
-                save.mutate({ approve: true, syncMasters: true, lineIndicesToSync: allowedIndices });
+                save.mutate({
+                  approve: true,
+                  syncMasters: true,
+                  lineIndicesToSync: allowedIndices,
+                  warehouseMap: linesWarehouseMap,
+                  ragMap: linesRagMap,
+                });
               }}
               disabled={save.isPending}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
@@ -1910,6 +2229,7 @@ export function BillForm({ billId, initialType = "items", initial, pendingOcrRes
                   hsn_code: "",
                   vat_rate: lines[masterFormLineIndex]?.vat_rate || 5,
                   per_unit: lines[masterFormLineIndex]?.per_unit || 0,
+                  warehouse: lines[masterFormLineIndex]?.warehouse || "Main Warehouse",
                 }
               : undefined
           }

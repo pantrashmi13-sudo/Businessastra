@@ -104,6 +104,7 @@ interface UnifiedMovement {
   line_amount: number;
   landing_cost?: number;
   created_at: string;
+  source?: "bill" | "challan" | "purchase_return" | "sales_return";
 }
 
 export function MaterialCentreRegister() {
@@ -153,7 +154,7 @@ export function MaterialCentreRegister() {
   });
 
 
-  // Fetch all movements (Inward from Bills + Outward from Delivery Challans)
+  // Fetch all movements (Inward from Bills + Outward from Challans + Returns)
   const movementsQuery = useQuery({
     queryKey: ["unified_movements", "material-register"],
     queryFn: async () => {
@@ -178,6 +179,28 @@ export function MaterialCentreRegister() {
         `)
         .order("created_at", { ascending: false });
 
+      // 3. Outward movements from purchase returns (items returned to vendors)
+      const { data: purchaseReturnLines } = await supabase
+        .from("purchase_return_lines")
+        .select(`
+          id, return_id, ref_id, code, name, uom, quantity, per_unit,
+          line_amount, created_at,
+          purchase_returns!inner(return_number, return_date, status, vendors(name))
+        `)
+        .eq("purchase_returns.status", "approved")
+        .order("created_at", { ascending: false });
+
+      // 4. Inward movements from sales returns (items returned by customers)
+      const { data: salesReturnLines } = await supabase
+        .from("sales_return_lines")
+        .select(`
+          id, return_id, ref_id, code, name, uom, quantity, per_unit,
+          line_amount, created_at,
+          sales_returns!inner(return_number, return_date, status, customers(name))
+        `)
+        .eq("sales_returns.status", "approved")
+        .order("created_at", { ascending: false });
+
       const list: UnifiedMovement[] = [];
 
       if (billLines) {
@@ -199,6 +222,7 @@ export function MaterialCentreRegister() {
             line_amount: Number(b.line_amount || 0),
             landing_cost: Number(b.landing_cost || b.per_unit || 0),
             created_at: b.created_at,
+            source: "bill",
           });
         }
       }
@@ -222,6 +246,51 @@ export function MaterialCentreRegister() {
             line_amount: Number(c.line_amount || 0),
             landing_cost: Number(c.landing_cost || c.per_unit || 0),
             created_at: c.created_at,
+            source: "challan",
+          });
+        }
+      }
+
+      if (purchaseReturnLines) {
+        for (const pr of purchaseReturnLines as any[]) {
+          list.push({
+            id: pr.id,
+            type: "outward",
+            docNumber: pr.purchase_returns?.return_number || "Purchase Return",
+            partyName: pr.purchase_returns?.vendors?.name || "Vendor",
+            date: pr.purchase_returns?.return_date || pr.created_at.slice(0, 10),
+            ref_id: pr.ref_id,
+            code: pr.code,
+            name: pr.name,
+            uom: pr.uom || "NOS",
+            quantity: Number(pr.quantity || 0),
+            per_unit: Number(pr.per_unit || 0),
+            line_amount: Number(pr.line_amount || 0),
+            landing_cost: Number(pr.per_unit || 0),
+            created_at: pr.created_at,
+            source: "purchase_return",
+          });
+        }
+      }
+
+      if (salesReturnLines) {
+        for (const sr of salesReturnLines as any[]) {
+          list.push({
+            id: sr.id,
+            type: "inward",
+            docNumber: sr.sales_returns?.return_number || "Sales Return",
+            partyName: sr.sales_returns?.customers?.name || "Customer",
+            date: sr.sales_returns?.return_date || sr.created_at.slice(0, 10),
+            ref_id: sr.ref_id,
+            code: sr.code,
+            name: sr.name,
+            uom: sr.uom || "NOS",
+            quantity: Number(sr.quantity || 0),
+            per_unit: Number(sr.per_unit || 0),
+            line_amount: Number(sr.line_amount || 0),
+            landing_cost: Number(sr.per_unit || 0),
+            created_at: sr.created_at,
+            source: "sales_return",
           });
         }
       }
@@ -257,25 +326,90 @@ export function MaterialCentreRegister() {
         map.set(codeKey, {
           mainItem: item,
           allIds: [item.id],
-          totalQty: Number(item.qty || 0),
+          totalQty: 0,
         });
       } else {
         const entry = map.get(codeKey)!;
         entry.allIds.push(item.id);
-        entry.totalQty += Number(item.qty || 0);
       }
     }
 
     return Array.from(map.values()).map((entry) => ({
       ...entry.mainItem,
-      qty: entry.totalQty,
+      qty: 0,
       allIds: entry.allIds,
     }));
   }, [itemsQuery.data]);
 
+  // Compute movement-based qty per item code (separate memo for clean dependency)
+  const movementQtyByCode = useMemo(() => {
+    const movements = movementsQuery.data ?? [];
+    const qtyMap = new Map<string, number>();
+    for (const m of movements) {
+      const codeKey = (m.code || "").trim().toUpperCase();
+      if (!codeKey) continue;
+      const qty = Number(m.quantity || 0);
+      qtyMap.set(codeKey, (qtyMap.get(codeKey) || 0) + (m.type === "inward" ? qty : -qty));
+    }
+    return qtyMap;
+  }, [movementsQuery.data]);
+
+  // Build name -> code mapping for name-based matching
+  const nameToCode = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of (itemsQuery.data ?? [])) {
+      const codeKey = (item.item_code || item.id).trim().toUpperCase();
+      const nameKey = (item.item_name || "").trim().toLowerCase();
+      if (nameKey) map.set(nameKey, codeKey);
+    }
+    return map;
+  }, [itemsQuery.data]);
+
+  // Compute qty from movements by name (fallback for when code is null)
+  const movementQtyByName = useMemo(() => {
+    const movements = movementsQuery.data ?? [];
+    const qtyMap = new Map<string, number>();
+    for (const m of movements) {
+      if (m.code) continue; // already counted in movementQtyByCode
+      const nameKey = (m.name || "").trim().toLowerCase();
+      if (!nameKey) continue;
+      const codeKey = nameToCode.get(nameKey);
+      if (!codeKey) continue;
+      const qty = Number(m.quantity || 0);
+      qtyMap.set(codeKey, (qtyMap.get(codeKey) || 0) + (m.type === "inward" ? qty : -qty));
+    }
+    return qtyMap;
+  }, [movementsQuery.data, nameToCode]);
+
+  // Compute qty from movements by ref_id (fallback for when code and name don't match)
+  const movementQtyByRefId = useMemo(() => {
+    const movements = movementsQuery.data ?? [];
+    const qtyMap = new Map<string, number>();
+    for (const m of movements) {
+      if (m.code || m.name) continue; // already counted above
+      if (!m.ref_id) continue;
+      const qty = Number(m.quantity || 0);
+      qtyMap.set(m.ref_id, (qtyMap.get(m.ref_id) || 0) + (m.type === "inward" ? qty : -qty));
+    }
+    return qtyMap;
+  }, [movementsQuery.data]);
+
+  // Merge movement-based qty into groupedItems
+  const groupedItemsWithQty = useMemo(() => {
+    return groupedItems.map((item) => {
+      const codeKey = (item.item_code || item.id).trim().toUpperCase();
+      let qty = (movementQtyByCode.get(codeKey) ?? 0) + (movementQtyByName.get(codeKey) ?? 0);
+      // Also sum by ref_id for each item ID in this group
+      for (const id of item.allIds) {
+        qty += movementQtyByRefId.get(id) ?? 0;
+      }
+      return { ...item, qty };
+    });
+  }, [groupedItems, movementQtyByCode, movementQtyByName, movementQtyByRefId]);
+
   // Filter items based on search, type, and category hierarchy
   const filteredItems = useMemo(() => {
-    return groupedItems.filter((item) => {
+    return groupedItemsWithQty.filter((item) => {
       // Type filter
       if (filterType === "inventory" && (item.is_service || item.is_inventory === false)) return false;
       if (filterType === "other" && (item.is_service || item.is_inventory !== false)) return false;
@@ -301,49 +435,49 @@ export function MaterialCentreRegister() {
         (item.sub_category && item.sub_category.toLowerCase().includes(q))
       );
     });
-  }, [groupedItems, filterType, searchQuery, filterCategory, filterParentCategory, filterSubParentCategory, filterSubCategory]);
+  }, [groupedItemsWithQty, filterType, searchQuery, filterCategory, filterParentCategory, filterSubParentCategory, filterSubCategory]);
 
   // Unique category values for filter dropdowns
   const uniqueCategories = useMemo(() => {
     const set = new Set<string>();
-    for (const item of groupedItems) {
+    for (const item of groupedItemsWithQty) {
       if (item.category) set.add(item.category);
     }
     return Array.from(set).sort();
-  }, [groupedItems]);
+  }, [groupedItemsWithQty]);
 
   const uniqueParentCategories = useMemo(() => {
     const set = new Set<string>();
-    for (const item of groupedItems) {
+    for (const item of groupedItemsWithQty) {
       if (item.parent_category) set.add(item.parent_category);
     }
     return Array.from(set).sort();
-  }, [groupedItems]);
+  }, [groupedItemsWithQty]);
 
   const uniqueSubParentCategories = useMemo(() => {
     const set = new Set<string>();
-    for (const item of groupedItems) {
+    for (const item of groupedItemsWithQty) {
       if (item.sub_parent_category) set.add(item.sub_parent_category);
     }
     return Array.from(set).sort();
-  }, [groupedItems]);
+  }, [groupedItemsWithQty]);
 
   const uniqueSubCategories = useMemo(() => {
     const set = new Set<string>();
-    for (const item of groupedItems) {
+    for (const item of groupedItemsWithQty) {
       if (item.sub_category) set.add(item.sub_category);
     }
     return Array.from(set).sort();
-  }, [groupedItems]);
+  }, [groupedItemsWithQty]);
 
   // Overall Statistics
   const stats = useMemo(() => {
-    const totalSkus = groupedItems.length;
+    const totalSkus = groupedItemsWithQty.length;
     let totalQty = 0;
     let totalValuation = 0;
     let lowStockCount = 0;
 
-    for (const item of groupedItems) {
+    for (const item of groupedItemsWithQty) {
       if (!item.is_service) {
         totalQty += Number(item.qty || 0);
         totalValuation += Number(item.qty || 0) * Number(item.default_rate || 0);
@@ -354,14 +488,14 @@ export function MaterialCentreRegister() {
     }
 
     return { totalSkus, totalQty, totalValuation, lowStockCount };
-  }, [groupedItems]);
+  }, [groupedItemsWithQty]);
 
   // Category counts for tabs
   const categoryCounts = useMemo(() => {
     let inventoryCount = 0;
     let otherCount = 0;
     let servicesCount = 0;
-    for (const item of groupedItems) {
+    for (const item of groupedItemsWithQty) {
       if (item.is_service) {
         servicesCount++;
       } else if (item.is_inventory === false) {
@@ -371,13 +505,13 @@ export function MaterialCentreRegister() {
       }
     }
     return { inventoryCount, otherCount, servicesCount };
-  }, [groupedItems]);
+  }, [groupedItemsWithQty]);
 
   // Currently inspected item detail
   const activeDetailItem = useMemo(() => {
     if (!selectedItemCode) return null;
-    return groupedItems.find((i) => i.item_code.toUpperCase() === selectedItemCode.toUpperCase()) ?? null;
-  }, [selectedItemCode, groupedItems]);
+    return groupedItemsWithQty.find((i) => i.item_code.toUpperCase() === selectedItemCode.toUpperCase()) ?? null;
+  }, [selectedItemCode, groupedItemsWithQty]);
 
   // Movements and lots for selected item_code
   const activeMovements = useMemo(() => {
@@ -422,12 +556,11 @@ export function MaterialCentreRegister() {
       }
     >();
 
-    // 1. Process movements that have explicit lot numbers
+    // 1. Process ALL movements (including those without lot numbers)
     for (const m of activeMovements) {
       const rawLot = m.lot_number?.trim();
-      if (!rawLot) continue;
-
-      const lotKey = rawLot.toUpperCase();
+      const lotKey = (rawLot || "NO-LOT").toUpperCase();
+      const displayName = rawLot || "No Lot / General Stock";
       const baseQty = getBaseQty(m);
       const isOutward = m.type === "outward";
 
@@ -438,7 +571,7 @@ export function MaterialCentreRegister() {
 
       if (!lotMap.has(lotKey)) {
         lotMap.set(lotKey, {
-          lotNumber: rawLot,
+          lotNumber: displayName,
           expiryDate: m.expiry_date || "—",
           totalQty: isOutward ? -baseQty : baseQty,
           rate: unitRate,
@@ -452,47 +585,11 @@ export function MaterialCentreRegister() {
           lot.totalQty -= baseQty;
         } else {
           lot.totalQty += baseQty;
-          // Update rate with latest landing cost for inward
           lot.rate = unitRate;
           if (m.expiry_date && lot.expiryDate === "—") {
             lot.expiryDate = m.expiry_date;
           }
         }
-      }
-    }
-
-    // 2. Sum explicit lot quantities
-    let explicitLotTotal = 0;
-    for (const lot of lotMap.values()) {
-      if (lot.totalQty > 0) {
-        explicitLotTotal += lot.totalQty;
-      }
-    }
-
-    // 3. Handle unassigned remaining stock
-    const totalMasterQty = Number(activeDetailItem.qty || 0);
-    const unassignedQty = Math.max(0, totalMasterQty - explicitLotTotal);
-    const masterLotNum = ((activeDetailItem as Record<string, unknown>).lot_number as string)?.trim();
-
-    if (unassignedQty > 0 || lotMap.size === 0) {
-      const fallbackLotNum =
-        masterLotNum ||
-        (lotMap.size > 0 ? "General Stock" : `LOT-${activeDetailItem.item_code.trim().toUpperCase()}`);
-
-      const fallbackKey = fallbackLotNum.toUpperCase();
-      if (lotMap.has(fallbackKey)) {
-        const existing = lotMap.get(fallbackKey)!;
-        existing.totalQty += unassignedQty;
-      } else {
-        lotMap.set(fallbackKey, {
-          lotNumber: fallbackLotNum,
-          expiryDate: ((activeDetailItem as Record<string, unknown>).expiry_date as string) || "—",
-          totalQty: unassignedQty > 0 ? unassignedQty : totalMasterQty,
-          rate: Number(activeDetailItem.default_rate || 0),
-          vendorName: "Master Entry",
-          billNumber: "Unassigned Stock",
-          date: (activeDetailItem.created_at as string)?.slice(0, 10) || "—",
-        });
       }
     }
 
@@ -1065,7 +1162,7 @@ export function MaterialCentreRegister() {
             ) : (
               filteredItems.map((item) => {
                 const isLowStock = item.reorder_level > 0 && item.qty <= item.reorder_level;
-                const totalValue = Number(item.qty || 0) * Number(item.default_rate || 0);
+                const totalValue = Number(item.qty || 0) * Number(item.selling_price || item.default_rate || 0);
 
                 const isAltMode = uomMode === "alt" && Boolean(item.alt_uom) && Number(item.alt_uom_conversion || 0) > 0;
                 const displayQty = isAltMode
@@ -1123,6 +1220,7 @@ export function MaterialCentreRegister() {
                     <TableCell className="text-right font-semibold">{inr(totalValue)}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {item.warehouse || "Main"}
+                      {item.rag_number && <div className="text-[10px] text-muted-foreground/70">{item.rag_number}</div>}
                     </TableCell>
                     <TableCell>
                       <Badge variant={item.status === "Inactive" ? "secondary" : "default"}>
@@ -1185,7 +1283,7 @@ export function MaterialCentreRegister() {
                 <SheetTitle className="text-2xl mt-2">{activeDetailItem.item_name}</SheetTitle>
                 <SheetDescription className="flex items-center gap-4 text-sm mt-1">
                   <span>UOM: <b>{activeDetailItem.uom}</b></span>
-                  <span>Warehouse: <b>{activeDetailItem.warehouse || "Main"}</b></span>
+                  <span>Warehouse: <b>{activeDetailItem.warehouse || "Main"}</b> {activeDetailItem.rag_number ? `(${activeDetailItem.rag_number})` : ""}</span>
                   <span>Stock: <b className="text-primary">{num(activeDetailItem.qty)} {activeDetailItem.uom}</b></span>
                 </SheetDescription>
               </SheetHeader>
@@ -1276,7 +1374,14 @@ export function MaterialCentreRegister() {
                             
                             // Get landing cost: use lot-specific cost from map
                             const lotLandingCost = lotLandingCostMap.get(lotKey) || 0;
-                            const inwardLandingCost = Number(m.landing_cost || m.per_unit || 0);
+                            let inwardLandingCost = Number(m.landing_cost || m.per_unit || 0);
+                            
+                            // For sales returns, use lot-specific cost or any lot's cost
+                            // instead of selling price (sr.per_unit)
+                            if (isInward && m.source === "sales_return") {
+                              const anyLotCost = lotLandingCostMap.values().next().value || 0;
+                              inwardLandingCost = lotLandingCost || anyLotCost || inwardLandingCost;
+                            }
                             
                             // For display: use the lot's specific landing cost
                             const displayLandingUnit = isInward ? inwardLandingCost : (lotLandingCost || inwardLandingCost);
@@ -1351,37 +1456,64 @@ export function MaterialCentreRegister() {
 
                   {/* Final Closing Balance Summary Section */}
                   {(() => {
-                    // Calculate closing value using lot-specific landing costs
+                    // Compute closing qty and value from movements (FIFO order)
                     const sortedMovements = [...activeMovements].sort(
                       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                     );
-                    
-                    // Build lot-wise tracking
-                    const lotLandingCost = new Map<string, number>(); // lot -> cost per unit
-                    const lotQty = new Map<string, number>(); // lot -> remaining qty
-                    
-                    for (const m of sortedMovements) {
-                      const lotKey = (m.lot_number || "").trim().toUpperCase();
-                      const qty = Number(m.quantity || 0);
-                      const costPerUnit = Number(m.landing_cost || m.per_unit || 0);
-                      
-                      if (m.type === "inward") {
-                        lotLandingCost.set(lotKey, costPerUnit);
-                        lotQty.set(lotKey, (lotQty.get(lotKey) || 0) + qty);
-                      } else {
-                        lotQty.set(lotKey, (lotQty.get(lotKey) || 0) - qty);
-                      }
-                    }
-                    
-                    // Calculate totals from remaining stock in each lot
+
                     let closingQty = 0;
                     let closingValue = 0;
-                    for (const [lotKey, qty] of lotQty.entries()) {
-                      if (qty > 0) {
+                    // Track lot-specific landing costs for FIFO outward valuation
+                    const lotCostMap = new Map<string, number>(); // lot -> latest landing cost per unit
+                    // Pool of stock: ordered list of {qty, cost} for FIFO consumption
+                    const stockPool: Array<{ qty: number; cost: number }> = [];
+
+                    for (const m of sortedMovements) {
+                      const qty = Number(m.quantity || 0);
+                      const lotKey = (m.lot_number || "").trim().toUpperCase();
+                      const rawCostPerUnit = Number(m.landing_cost || m.per_unit || 0);
+
+                      // For sales returns (inward), use lot-specific cost or current avg cost
+                      // instead of selling price (sr.per_unit) which is not the purchase cost
+                      let costPerUnit = rawCostPerUnit;
+                      if (m.type === "inward" && m.source === "sales_return") {
+                        // Try matching lot first, then use any lot's cost, then avg of pool
+                        const lotCost = lotCostMap.get(lotKey);
+                        const anyLotCost = lotCostMap.values().next().value;
+                        const poolAvg = stockPool.length > 0
+                          ? stockPool.reduce((sum, p) => sum + p.cost * p.qty, 0) / stockPool.reduce((sum, p) => sum + p.qty, 0)
+                          : 0;
+                        costPerUnit = lotCost || anyLotCost || poolAvg || rawCostPerUnit;
+                      }
+
+                      if (m.type === "inward") {
+                        // Add to pool (FIFO: append to end)
+                        stockPool.push({ qty, cost: costPerUnit });
+                        lotCostMap.set(lotKey, costPerUnit);
                         closingQty += qty;
-                        closingValue += qty * (lotLandingCost.get(lotKey) || 0);
+                        closingValue += costPerUnit * qty;
+                      } else {
+                        // Outward: consume from earliest lots in pool (FIFO)
+                        let remaining = qty;
+                        let outwardValue = 0;
+                        while (remaining > 0 && stockPool.length > 0) {
+                          const earliest = stockPool[0];
+                          const take = Math.min(remaining, earliest.qty);
+                          outwardValue += take * earliest.cost;
+                          earliest.qty -= take;
+                          remaining -= take;
+                          if (earliest.qty <= 0) stockPool.shift();
+                        }
+                        // If pool exhausted but still have outward qty, use available lot cost
+                        if (remaining > 0) {
+                          const fallbackCost = lotCostMap.get(lotKey) || costPerUnit;
+                          outwardValue += remaining * fallbackCost;
+                        }
+                        closingQty -= qty;
+                        closingValue -= outwardValue;
                       }
                     }
+
                     const avgLandingCost = closingQty > 0 ? closingValue / closingQty : 0;
                     
                     return (

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, FileText, Package, Wrench, Landmark } from "lucide-react";
+import { Plus, FileText, Package, Wrench, Landmark, RotateCcw } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -82,7 +82,13 @@ function BillsList() {
         title="Bills & Purchases"
         description="All bills from vendors — items, services, and fixed assets."
         actions={
-          <DropdownMenu>
+          <div className="flex items-center gap-2">
+            <Link to="/purchase-returns/new">
+              <Button variant="outline">
+                <RotateCcw className="mr-1 h-4 w-4" /> Purchase Return
+              </Button>
+            </Link>
+            <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button>
                 <Plus className="mr-1 h-4 w-4" /> New Bill
@@ -111,6 +117,7 @@ function BillsList() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         }
       />
       <div className="space-y-4 p-6">

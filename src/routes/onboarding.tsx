@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { BsDatePicker } from "@/components/ui/bs-date-picker";
 
 export const Route = createFileRoute("/onboarding")({
   component: CompanyOnboarding,
@@ -24,6 +25,22 @@ function CompanyOnboarding() {
   const [taxNumber, setTaxNumber] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [dateFormat, setDateFormat] = useState<"ad" | "bs">("ad");
+  const [fyStartDate, setFyStartDate] = useState("");
+
+  // Derive FY info from selected date
+  const fyInfo = useMemo(() => {
+    if (!fyStartDate) return null;
+    const adDate = fyStartDate; // always stored as AD YYYY-MM-DD
+    const [yearStr] = adDate.split("-");
+    const startYear = Number(yearStr);
+    const endYear = startYear + 1;
+    const fyCode = `${String(startYear).slice(-2)}${String(endYear).slice(-2)}`;
+    return {
+      startDate: adDate,
+      fyCode,
+      label: `${adDate} to ${endYear}-03-31`,
+    };
+  }, [fyStartDate]);
 
   const saveCompany = useMutation({
     mutationFn: async () => {
@@ -33,6 +50,11 @@ function CompanyOnboarding() {
       if (!taxNumber.trim()) {
         throw new Error(`${taxType.toUpperCase()} number is required`);
       }
+      if (!fyStartDate) {
+        throw new Error("Financial year start date is required");
+      }
+
+      const startYear = Number(fyStartDate.split("-")[0]);
 
       const payload = {
         name: companyName.trim(),
@@ -41,11 +63,13 @@ function CompanyOnboarding() {
         pan: taxType === "pan" ? taxNumber.trim() : null,
         logo_url: logoUrl.trim() || null,
         date_format: dateFormat,
+        fy_start_year: startYear,
+        fy_start_date: fyStartDate,
         is_default: true,
       };
 
       const { data, error } = await supabase
-        .from("companies")
+        .from("companies" as any)
         .insert(payload)
         .select("id")
         .single();
@@ -148,7 +172,10 @@ function CompanyOnboarding() {
             <Label>Reporting Date Format *</Label>
             <RadioGroup
               value={dateFormat}
-              onValueChange={(v) => setDateFormat(v as "ad" | "bs")}
+              onValueChange={(v) => {
+                setDateFormat(v as "ad" | "bs");
+                setFyStartDate("");
+              }}
               className="flex gap-6"
             >
               <div className="flex items-center space-x-2">
@@ -166,6 +193,31 @@ function CompanyOnboarding() {
                 </Label>
               </div>
             </RadioGroup>
+          </div>
+
+          {/* Financial Year Start Date */}
+          <div className="space-y-3">
+            <Label>Financial Year Starts From *</Label>
+            {dateFormat === "bs" ? (
+              <BsDatePicker
+                value={fyStartDate}
+                onChange={setFyStartDate}
+                placeholder="Select start date"
+              />
+            ) : (
+              <Input
+                type="date"
+                value={fyStartDate}
+                onChange={(e) => setFyStartDate(e.target.value)}
+                className="w-44 font-mono"
+              />
+            )}
+            {fyInfo && (
+              <p className="text-sm text-muted-foreground">
+                Financial Year: <span className="font-medium text-foreground">{fyInfo.label}</span>
+                <span className="ml-2 text-xs">(Code: {fyInfo.fyCode})</span>
+              </p>
+            )}
           </div>
 
           {/* Submit */}

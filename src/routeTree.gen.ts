@@ -10,18 +10,31 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VatRegisterRouteImport } from './routes/vat-register'
+import { Route as SalesReturnsRouteImport } from './routes/sales-returns'
 import { Route as ReceiptPaymentRouteImport } from './routes/receipt-payment'
+import { Route as PurchaseReturnsRouteImport } from './routes/purchase-returns'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LedgersRouteImport } from './routes/ledgers'
+import { Route as JournalEntriesRouteImport } from './routes/journal-entries'
+import { Route as GeneralLedgerRouteImport } from './routes/general-ledger'
+import { Route as FixedAssetsRegisterRouteImport } from './routes/fixed-assets-register'
+import { Route as CoaRouteImport } from './routes/coa'
 import { Route as CashBankRouteImport } from './routes/cash-bank'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SalesReturnsIndexRouteImport } from './routes/sales-returns.index'
 import { Route as SalesInvoicesIndexRouteImport } from './routes/sales-invoices.index'
 import { Route as ReceiptPaymentIndexRouteImport } from './routes/receipt-payment.index'
+import { Route as PurchaseReturnsIndexRouteImport } from './routes/purchase-returns.index'
 import { Route as ConsumptionsIndexRouteImport } from './routes/consumptions.index'
 import { Route as ChallansIndexRouteImport } from './routes/challans.index'
 import { Route as CashBankIndexRouteImport } from './routes/cash-bank.index'
 import { Route as BillsIndexRouteImport } from './routes/bills.index'
+import { Route as SalesReturnsNewRouteImport } from './routes/sales-returns.new'
+import { Route as SalesReturnsIdRouteImport } from './routes/sales-returns.$id'
+import { Route as PurchaseReturnsNewRouteImport } from './routes/purchase-returns.new'
+import { Route as PurchaseReturnsIdRouteImport } from './routes/purchase-returns.$id'
+import { Route as MastersWarehousesRouteImport } from './routes/masters.warehouses'
 import { Route as MastersVendorsRouteImport } from './routes/masters.vendors'
 import { Route as MastersItemsRouteImport } from './routes/masters.items'
 import { Route as MastersFixedAssetsRouteImport } from './routes/masters.fixed-assets'
@@ -53,9 +66,19 @@ const VatRegisterRoute = VatRegisterRouteImport.update({
   path: '/vat-register',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SalesReturnsRoute = SalesReturnsRouteImport.update({
+  id: '/sales-returns',
+  path: '/sales-returns',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReceiptPaymentRoute = ReceiptPaymentRouteImport.update({
   id: '/receipt-payment',
   path: '/receipt-payment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PurchaseReturnsRoute = PurchaseReturnsRouteImport.update({
+  id: '/purchase-returns',
+  path: '/purchase-returns',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -73,6 +96,26 @@ const LedgersRoute = LedgersRouteImport.update({
   path: '/ledgers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JournalEntriesRoute = JournalEntriesRouteImport.update({
+  id: '/journal-entries',
+  path: '/journal-entries',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GeneralLedgerRoute = GeneralLedgerRouteImport.update({
+  id: '/general-ledger',
+  path: '/general-ledger',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FixedAssetsRegisterRoute = FixedAssetsRegisterRouteImport.update({
+  id: '/fixed-assets-register',
+  path: '/fixed-assets-register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CoaRoute = CoaRouteImport.update({
+  id: '/coa',
+  path: '/coa',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CashBankRoute = CashBankRouteImport.update({
   id: '/cash-bank',
   path: '/cash-bank',
@@ -83,6 +126,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SalesReturnsIndexRoute = SalesReturnsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SalesReturnsRoute,
+} as any)
 const SalesInvoicesIndexRoute = SalesInvoicesIndexRouteImport.update({
   id: '/sales-invoices/',
   path: '/sales-invoices/',
@@ -92,6 +140,11 @@ const ReceiptPaymentIndexRoute = ReceiptPaymentIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ReceiptPaymentRoute,
+} as any)
+const PurchaseReturnsIndexRoute = PurchaseReturnsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PurchaseReturnsRoute,
 } as any)
 const ConsumptionsIndexRoute = ConsumptionsIndexRouteImport.update({
   id: '/consumptions/',
@@ -111,6 +164,31 @@ const CashBankIndexRoute = CashBankIndexRouteImport.update({
 const BillsIndexRoute = BillsIndexRouteImport.update({
   id: '/bills/',
   path: '/bills/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SalesReturnsNewRoute = SalesReturnsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => SalesReturnsRoute,
+} as any)
+const SalesReturnsIdRoute = SalesReturnsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => SalesReturnsRoute,
+} as any)
+const PurchaseReturnsNewRoute = PurchaseReturnsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => PurchaseReturnsRoute,
+} as any)
+const PurchaseReturnsIdRoute = PurchaseReturnsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => PurchaseReturnsRoute,
+} as any)
+const MastersWarehousesRoute = MastersWarehousesRouteImport.update({
+  id: '/masters/warehouses',
+  path: '/masters/warehouses',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MastersVendorsRoute = MastersVendorsRouteImport.update({
@@ -246,10 +324,16 @@ const CashBankBankIdEditRoute = CashBankBankIdEditRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cash-bank': typeof CashBankRouteWithChildren
+  '/coa': typeof CoaRoute
+  '/fixed-assets-register': typeof FixedAssetsRegisterRoute
+  '/general-ledger': typeof GeneralLedgerRoute
+  '/journal-entries': typeof JournalEntriesRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/purchase-returns': typeof PurchaseReturnsRouteWithChildren
   '/receipt-payment': typeof ReceiptPaymentRouteWithChildren
+  '/sales-returns': typeof SalesReturnsRouteWithChildren
   '/vat-register': typeof VatRegisterRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
@@ -262,12 +346,19 @@ export interface FileRoutesByFullPath {
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
+  '/masters/warehouses': typeof MastersWarehousesRoute
+  '/purchase-returns/$id': typeof PurchaseReturnsIdRoute
+  '/purchase-returns/new': typeof PurchaseReturnsNewRoute
+  '/sales-returns/$id': typeof SalesReturnsIdRoute
+  '/sales-returns/new': typeof SalesReturnsNewRoute
   '/bills/': typeof BillsIndexRoute
   '/cash-bank/': typeof CashBankIndexRoute
   '/challans/': typeof ChallansIndexRoute
   '/consumptions/': typeof ConsumptionsIndexRoute
+  '/purchase-returns/': typeof PurchaseReturnsIndexRoute
   '/receipt-payment/': typeof ReceiptPaymentIndexRoute
   '/sales-invoices/': typeof SalesInvoicesIndexRoute
+  '/sales-returns/': typeof SalesReturnsIndexRoute
   '/cash-bank/bank/$id': typeof CashBankBankIdRouteWithChildren
   '/cash-bank/bank/new': typeof CashBankBankNewRoute
   '/cash-bank/loan/$id': typeof CashBankLoanIdRouteWithChildren
@@ -285,6 +376,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/coa': typeof CoaRoute
+  '/fixed-assets-register': typeof FixedAssetsRegisterRoute
+  '/general-ledger': typeof GeneralLedgerRoute
+  '/journal-entries': typeof JournalEntriesRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
@@ -300,12 +395,19 @@ export interface FileRoutesByTo {
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
+  '/masters/warehouses': typeof MastersWarehousesRoute
+  '/purchase-returns/$id': typeof PurchaseReturnsIdRoute
+  '/purchase-returns/new': typeof PurchaseReturnsNewRoute
+  '/sales-returns/$id': typeof SalesReturnsIdRoute
+  '/sales-returns/new': typeof SalesReturnsNewRoute
   '/bills': typeof BillsIndexRoute
   '/cash-bank': typeof CashBankIndexRoute
   '/challans': typeof ChallansIndexRoute
   '/consumptions': typeof ConsumptionsIndexRoute
+  '/purchase-returns': typeof PurchaseReturnsIndexRoute
   '/receipt-payment': typeof ReceiptPaymentIndexRoute
   '/sales-invoices': typeof SalesInvoicesIndexRoute
+  '/sales-returns': typeof SalesReturnsIndexRoute
   '/cash-bank/bank/$id': typeof CashBankBankIdRouteWithChildren
   '/cash-bank/bank/new': typeof CashBankBankNewRoute
   '/cash-bank/loan/$id': typeof CashBankLoanIdRouteWithChildren
@@ -325,10 +427,16 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/cash-bank': typeof CashBankRouteWithChildren
+  '/coa': typeof CoaRoute
+  '/fixed-assets-register': typeof FixedAssetsRegisterRoute
+  '/general-ledger': typeof GeneralLedgerRoute
+  '/journal-entries': typeof JournalEntriesRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/purchase-returns': typeof PurchaseReturnsRouteWithChildren
   '/receipt-payment': typeof ReceiptPaymentRouteWithChildren
+  '/sales-returns': typeof SalesReturnsRouteWithChildren
   '/vat-register': typeof VatRegisterRoute
   '/bills/$id': typeof BillsIdRoute
   '/bills/new': typeof BillsNewRoute
@@ -341,12 +449,19 @@ export interface FileRoutesById {
   '/masters/fixed-assets': typeof MastersFixedAssetsRoute
   '/masters/items': typeof MastersItemsRoute
   '/masters/vendors': typeof MastersVendorsRoute
+  '/masters/warehouses': typeof MastersWarehousesRoute
+  '/purchase-returns/$id': typeof PurchaseReturnsIdRoute
+  '/purchase-returns/new': typeof PurchaseReturnsNewRoute
+  '/sales-returns/$id': typeof SalesReturnsIdRoute
+  '/sales-returns/new': typeof SalesReturnsNewRoute
   '/bills/': typeof BillsIndexRoute
   '/cash-bank/': typeof CashBankIndexRoute
   '/challans/': typeof ChallansIndexRoute
   '/consumptions/': typeof ConsumptionsIndexRoute
+  '/purchase-returns/': typeof PurchaseReturnsIndexRoute
   '/receipt-payment/': typeof ReceiptPaymentIndexRoute
   '/sales-invoices/': typeof SalesInvoicesIndexRoute
+  '/sales-returns/': typeof SalesReturnsIndexRoute
   '/cash-bank/bank/$id': typeof CashBankBankIdRouteWithChildren
   '/cash-bank/bank/new': typeof CashBankBankNewRoute
   '/cash-bank/loan/$id': typeof CashBankLoanIdRouteWithChildren
@@ -367,10 +482,16 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/cash-bank'
+    | '/coa'
+    | '/fixed-assets-register'
+    | '/general-ledger'
+    | '/journal-entries'
     | '/ledgers'
     | '/login'
     | '/onboarding'
+    | '/purchase-returns'
     | '/receipt-payment'
+    | '/sales-returns'
     | '/vat-register'
     | '/bills/$id'
     | '/bills/new'
@@ -383,12 +504,19 @@ export interface FileRouteTypes {
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
+    | '/masters/warehouses'
+    | '/purchase-returns/$id'
+    | '/purchase-returns/new'
+    | '/sales-returns/$id'
+    | '/sales-returns/new'
     | '/bills/'
     | '/cash-bank/'
     | '/challans/'
     | '/consumptions/'
+    | '/purchase-returns/'
     | '/receipt-payment/'
     | '/sales-invoices/'
+    | '/sales-returns/'
     | '/cash-bank/bank/$id'
     | '/cash-bank/bank/new'
     | '/cash-bank/loan/$id'
@@ -406,6 +534,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/coa'
+    | '/fixed-assets-register'
+    | '/general-ledger'
+    | '/journal-entries'
     | '/ledgers'
     | '/login'
     | '/onboarding'
@@ -421,12 +553,19 @@ export interface FileRouteTypes {
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
+    | '/masters/warehouses'
+    | '/purchase-returns/$id'
+    | '/purchase-returns/new'
+    | '/sales-returns/$id'
+    | '/sales-returns/new'
     | '/bills'
     | '/cash-bank'
     | '/challans'
     | '/consumptions'
+    | '/purchase-returns'
     | '/receipt-payment'
     | '/sales-invoices'
+    | '/sales-returns'
     | '/cash-bank/bank/$id'
     | '/cash-bank/bank/new'
     | '/cash-bank/loan/$id'
@@ -445,10 +584,16 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/cash-bank'
+    | '/coa'
+    | '/fixed-assets-register'
+    | '/general-ledger'
+    | '/journal-entries'
     | '/ledgers'
     | '/login'
     | '/onboarding'
+    | '/purchase-returns'
     | '/receipt-payment'
+    | '/sales-returns'
     | '/vat-register'
     | '/bills/$id'
     | '/bills/new'
@@ -461,12 +606,19 @@ export interface FileRouteTypes {
     | '/masters/fixed-assets'
     | '/masters/items'
     | '/masters/vendors'
+    | '/masters/warehouses'
+    | '/purchase-returns/$id'
+    | '/purchase-returns/new'
+    | '/sales-returns/$id'
+    | '/sales-returns/new'
     | '/bills/'
     | '/cash-bank/'
     | '/challans/'
     | '/consumptions/'
+    | '/purchase-returns/'
     | '/receipt-payment/'
     | '/sales-invoices/'
+    | '/sales-returns/'
     | '/cash-bank/bank/$id'
     | '/cash-bank/bank/new'
     | '/cash-bank/loan/$id'
@@ -486,10 +638,16 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CashBankRoute: typeof CashBankRouteWithChildren
+  CoaRoute: typeof CoaRoute
+  FixedAssetsRegisterRoute: typeof FixedAssetsRegisterRoute
+  GeneralLedgerRoute: typeof GeneralLedgerRoute
+  JournalEntriesRoute: typeof JournalEntriesRoute
   LedgersRoute: typeof LedgersRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
+  PurchaseReturnsRoute: typeof PurchaseReturnsRouteWithChildren
   ReceiptPaymentRoute: typeof ReceiptPaymentRouteWithChildren
+  SalesReturnsRoute: typeof SalesReturnsRouteWithChildren
   VatRegisterRoute: typeof VatRegisterRoute
   BillsIdRoute: typeof BillsIdRoute
   BillsNewRoute: typeof BillsNewRoute
@@ -502,6 +660,7 @@ export interface RootRouteChildren {
   MastersFixedAssetsRoute: typeof MastersFixedAssetsRoute
   MastersItemsRoute: typeof MastersItemsRoute
   MastersVendorsRoute: typeof MastersVendorsRoute
+  MastersWarehousesRoute: typeof MastersWarehousesRoute
   BillsIndexRoute: typeof BillsIndexRoute
   ChallansIndexRoute: typeof ChallansIndexRoute
   ConsumptionsIndexRoute: typeof ConsumptionsIndexRoute
@@ -517,11 +676,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VatRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sales-returns': {
+      id: '/sales-returns'
+      path: '/sales-returns'
+      fullPath: '/sales-returns'
+      preLoaderRoute: typeof SalesReturnsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/receipt-payment': {
       id: '/receipt-payment'
       path: '/receipt-payment'
       fullPath: '/receipt-payment'
       preLoaderRoute: typeof ReceiptPaymentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/purchase-returns': {
+      id: '/purchase-returns'
+      path: '/purchase-returns'
+      fullPath: '/purchase-returns'
+      preLoaderRoute: typeof PurchaseReturnsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding': {
@@ -545,6 +718,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LedgersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/journal-entries': {
+      id: '/journal-entries'
+      path: '/journal-entries'
+      fullPath: '/journal-entries'
+      preLoaderRoute: typeof JournalEntriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/general-ledger': {
+      id: '/general-ledger'
+      path: '/general-ledger'
+      fullPath: '/general-ledger'
+      preLoaderRoute: typeof GeneralLedgerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fixed-assets-register': {
+      id: '/fixed-assets-register'
+      path: '/fixed-assets-register'
+      fullPath: '/fixed-assets-register'
+      preLoaderRoute: typeof FixedAssetsRegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/coa': {
+      id: '/coa'
+      path: '/coa'
+      fullPath: '/coa'
+      preLoaderRoute: typeof CoaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cash-bank': {
       id: '/cash-bank'
       path: '/cash-bank'
@@ -559,6 +760,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sales-returns/': {
+      id: '/sales-returns/'
+      path: '/'
+      fullPath: '/sales-returns/'
+      preLoaderRoute: typeof SalesReturnsIndexRouteImport
+      parentRoute: typeof SalesReturnsRoute
+    }
     '/sales-invoices/': {
       id: '/sales-invoices/'
       path: '/sales-invoices'
@@ -572,6 +780,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/receipt-payment/'
       preLoaderRoute: typeof ReceiptPaymentIndexRouteImport
       parentRoute: typeof ReceiptPaymentRoute
+    }
+    '/purchase-returns/': {
+      id: '/purchase-returns/'
+      path: '/'
+      fullPath: '/purchase-returns/'
+      preLoaderRoute: typeof PurchaseReturnsIndexRouteImport
+      parentRoute: typeof PurchaseReturnsRoute
     }
     '/consumptions/': {
       id: '/consumptions/'
@@ -599,6 +814,41 @@ declare module '@tanstack/react-router' {
       path: '/bills'
       fullPath: '/bills/'
       preLoaderRoute: typeof BillsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sales-returns/new': {
+      id: '/sales-returns/new'
+      path: '/new'
+      fullPath: '/sales-returns/new'
+      preLoaderRoute: typeof SalesReturnsNewRouteImport
+      parentRoute: typeof SalesReturnsRoute
+    }
+    '/sales-returns/$id': {
+      id: '/sales-returns/$id'
+      path: '/$id'
+      fullPath: '/sales-returns/$id'
+      preLoaderRoute: typeof SalesReturnsIdRouteImport
+      parentRoute: typeof SalesReturnsRoute
+    }
+    '/purchase-returns/new': {
+      id: '/purchase-returns/new'
+      path: '/new'
+      fullPath: '/purchase-returns/new'
+      preLoaderRoute: typeof PurchaseReturnsNewRouteImport
+      parentRoute: typeof PurchaseReturnsRoute
+    }
+    '/purchase-returns/$id': {
+      id: '/purchase-returns/$id'
+      path: '/$id'
+      fullPath: '/purchase-returns/$id'
+      preLoaderRoute: typeof PurchaseReturnsIdRouteImport
+      parentRoute: typeof PurchaseReturnsRoute
+    }
+    '/masters/warehouses': {
+      id: '/masters/warehouses'
+      path: '/masters/warehouses'
+      fullPath: '/masters/warehouses'
+      preLoaderRoute: typeof MastersWarehousesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/masters/vendors': {
@@ -840,6 +1090,22 @@ const CashBankRouteWithChildren = CashBankRoute._addFileChildren(
   CashBankRouteChildren,
 )
 
+interface PurchaseReturnsRouteChildren {
+  PurchaseReturnsIdRoute: typeof PurchaseReturnsIdRoute
+  PurchaseReturnsNewRoute: typeof PurchaseReturnsNewRoute
+  PurchaseReturnsIndexRoute: typeof PurchaseReturnsIndexRoute
+}
+
+const PurchaseReturnsRouteChildren: PurchaseReturnsRouteChildren = {
+  PurchaseReturnsIdRoute: PurchaseReturnsIdRoute,
+  PurchaseReturnsNewRoute: PurchaseReturnsNewRoute,
+  PurchaseReturnsIndexRoute: PurchaseReturnsIndexRoute,
+}
+
+const PurchaseReturnsRouteWithChildren = PurchaseReturnsRoute._addFileChildren(
+  PurchaseReturnsRouteChildren,
+)
+
 interface ReceiptPaymentRouteChildren {
   ReceiptPaymentIndexRoute: typeof ReceiptPaymentIndexRoute
   ReceiptPaymentPaymentVoucherIdRoute: typeof ReceiptPaymentPaymentVoucherIdRoute
@@ -860,13 +1126,35 @@ const ReceiptPaymentRouteWithChildren = ReceiptPaymentRoute._addFileChildren(
   ReceiptPaymentRouteChildren,
 )
 
+interface SalesReturnsRouteChildren {
+  SalesReturnsIdRoute: typeof SalesReturnsIdRoute
+  SalesReturnsNewRoute: typeof SalesReturnsNewRoute
+  SalesReturnsIndexRoute: typeof SalesReturnsIndexRoute
+}
+
+const SalesReturnsRouteChildren: SalesReturnsRouteChildren = {
+  SalesReturnsIdRoute: SalesReturnsIdRoute,
+  SalesReturnsNewRoute: SalesReturnsNewRoute,
+  SalesReturnsIndexRoute: SalesReturnsIndexRoute,
+}
+
+const SalesReturnsRouteWithChildren = SalesReturnsRoute._addFileChildren(
+  SalesReturnsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CashBankRoute: CashBankRouteWithChildren,
+  CoaRoute: CoaRoute,
+  FixedAssetsRegisterRoute: FixedAssetsRegisterRoute,
+  GeneralLedgerRoute: GeneralLedgerRoute,
+  JournalEntriesRoute: JournalEntriesRoute,
   LedgersRoute: LedgersRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
+  PurchaseReturnsRoute: PurchaseReturnsRouteWithChildren,
   ReceiptPaymentRoute: ReceiptPaymentRouteWithChildren,
+  SalesReturnsRoute: SalesReturnsRouteWithChildren,
   VatRegisterRoute: VatRegisterRoute,
   BillsIdRoute: BillsIdRoute,
   BillsNewRoute: BillsNewRoute,
@@ -879,6 +1167,7 @@ const rootRouteChildren: RootRouteChildren = {
   MastersFixedAssetsRoute: MastersFixedAssetsRoute,
   MastersItemsRoute: MastersItemsRoute,
   MastersVendorsRoute: MastersVendorsRoute,
+  MastersWarehousesRoute: MastersWarehousesRoute,
   BillsIndexRoute: BillsIndexRoute,
   ChallansIndexRoute: ChallansIndexRoute,
   ConsumptionsIndexRoute: ConsumptionsIndexRoute,
