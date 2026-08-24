@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { KnowledgeGraph } from "@/components/knowledge-graph/KnowledgeGraph";
-import { Network } from "lucide-react";
+import { DataKnowledgeGraph } from "@/components/knowledge-graph/DataKnowledgeGraph";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Network, Database } from "lucide-react";
 
 export const Route = createFileRoute("/knowledge-graph")({
   component: KnowledgeGraphPage,
@@ -22,9 +24,25 @@ function KnowledgeGraphPage() {
         </div>
       </div>
 
-      {/* Graph */}
-      <div className="flex-1 overflow-hidden p-3">
-        <KnowledgeGraph />
+      <div className="flex-1 p-3 flex flex-col h-full overflow-hidden">
+        <Tabs defaultValue="data" className="h-full flex flex-col">
+          <TabsList className="w-[400px] grid w-full grid-cols-2 mb-2">
+            <TabsTrigger value="data" className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Data Explorer
+            </TabsTrigger>
+            <TabsTrigger value="schema" className="flex items-center gap-2">
+              <Network className="h-4 w-4" />
+              Schema Map
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="data" className="flex-1 h-full m-0">
+            <DataKnowledgeGraph />
+          </TabsContent>
+          <TabsContent value="schema" className="flex-1 h-full m-0">
+            <KnowledgeGraph />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
