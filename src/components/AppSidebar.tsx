@@ -19,6 +19,7 @@ import {
   ListTree,
   ScrollText,
   ClipboardList,
+  Network,
 } from "lucide-react";
 
 import {
@@ -58,19 +59,17 @@ const bills = [
   { title: "VAT Register", url: "/vat-register", icon: Calculator },
 ];
 
-const receiptPayment = [
-  { title: "Receipt & Payment", url: "/receipt-payment", icon: Banknote },
-];
+const receiptPayment = [{ title: "Receipt & Payment", url: "/receipt-payment", icon: Banknote }];
 
-const cashBank = [
-  { title: "Cash & Bank", url: "/cash-bank", icon: Wallet },
-];
+const cashBank = [{ title: "Cash & Bank", url: "/cash-bank", icon: Wallet }];
 
 const accounting = [
   { title: "Chart of Accounts", url: "/coa", icon: ListTree },
   { title: "Journal Entries", url: "/journal-entries", icon: ScrollText },
   { title: "General Ledger", url: "/general-ledger", icon: ClipboardList },
 ];
+
+const system = [{ title: "Knowledge Graph", url: "/knowledge-graph", icon: Network }];
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -91,11 +90,17 @@ export function AppSidebar() {
       <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
         <Link to="/" className="flex items-center gap-3 text-sidebar-foreground">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white p-1 shadow-sm">
-            <img src="/bizastra-logo.png" alt="Bizastra Logo" className="h-full w-full object-contain" />
+            <img
+              src="/bizastra-logo.png"
+              alt="Bizastra Logo"
+              className="h-full w-full object-contain"
+            />
           </div>
           <div className="flex flex-col leading-tight">
             <span className="text-base font-bold text-primary tracking-tight">BIZASTRA</span>
-            <span className="text-[10px] text-sidebar-foreground/60 tracking-wider">STRATEGY. ELEVATION. GROWTH.</span>
+            <span className="text-[10px] text-sidebar-foreground/60 tracking-wider">
+              STRATEGY. ELEVATION. GROWTH.
+            </span>
           </div>
         </Link>
       </SidebarHeader>
@@ -193,6 +198,24 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {accounting.map((m) => (
+                <SidebarMenuItem key={m.url}>
+                  <SidebarMenuButton asChild isActive={isActive(m.url)}>
+                    <Link to={m.url}>
+                      <m.icon />
+                      <span>{m.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>System</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {system.map((m) => (
                 <SidebarMenuItem key={m.url}>
                   <SidebarMenuButton asChild isActive={isActive(m.url)}>
                     <Link to={m.url}>

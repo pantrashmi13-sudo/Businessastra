@@ -16,6 +16,7 @@ import { Route as PurchaseReturnsRouteImport } from './routes/purchase-returns'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LedgersRouteImport } from './routes/ledgers'
+import { Route as KnowledgeGraphRouteImport } from './routes/knowledge-graph'
 import { Route as JournalEntriesRouteImport } from './routes/journal-entries'
 import { Route as GeneralLedgerRouteImport } from './routes/general-ledger'
 import { Route as FixedAssetsRegisterRouteImport } from './routes/fixed-assets-register'
@@ -94,6 +95,11 @@ const LoginRoute = LoginRouteImport.update({
 const LedgersRoute = LedgersRouteImport.update({
   id: '/ledgers',
   path: '/ledgers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KnowledgeGraphRoute = KnowledgeGraphRouteImport.update({
+  id: '/knowledge-graph',
+  path: '/knowledge-graph',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JournalEntriesRoute = JournalEntriesRouteImport.update({
@@ -328,6 +334,7 @@ export interface FileRoutesByFullPath {
   '/fixed-assets-register': typeof FixedAssetsRegisterRoute
   '/general-ledger': typeof GeneralLedgerRoute
   '/journal-entries': typeof JournalEntriesRoute
+  '/knowledge-graph': typeof KnowledgeGraphRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
@@ -380,6 +387,7 @@ export interface FileRoutesByTo {
   '/fixed-assets-register': typeof FixedAssetsRegisterRoute
   '/general-ledger': typeof GeneralLedgerRoute
   '/journal-entries': typeof JournalEntriesRoute
+  '/knowledge-graph': typeof KnowledgeGraphRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
@@ -431,6 +439,7 @@ export interface FileRoutesById {
   '/fixed-assets-register': typeof FixedAssetsRegisterRoute
   '/general-ledger': typeof GeneralLedgerRoute
   '/journal-entries': typeof JournalEntriesRoute
+  '/knowledge-graph': typeof KnowledgeGraphRoute
   '/ledgers': typeof LedgersRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
@@ -486,6 +495,7 @@ export interface FileRouteTypes {
     | '/fixed-assets-register'
     | '/general-ledger'
     | '/journal-entries'
+    | '/knowledge-graph'
     | '/ledgers'
     | '/login'
     | '/onboarding'
@@ -538,6 +548,7 @@ export interface FileRouteTypes {
     | '/fixed-assets-register'
     | '/general-ledger'
     | '/journal-entries'
+    | '/knowledge-graph'
     | '/ledgers'
     | '/login'
     | '/onboarding'
@@ -588,6 +599,7 @@ export interface FileRouteTypes {
     | '/fixed-assets-register'
     | '/general-ledger'
     | '/journal-entries'
+    | '/knowledge-graph'
     | '/ledgers'
     | '/login'
     | '/onboarding'
@@ -642,6 +654,7 @@ export interface RootRouteChildren {
   FixedAssetsRegisterRoute: typeof FixedAssetsRegisterRoute
   GeneralLedgerRoute: typeof GeneralLedgerRoute
   JournalEntriesRoute: typeof JournalEntriesRoute
+  KnowledgeGraphRoute: typeof KnowledgeGraphRoute
   LedgersRoute: typeof LedgersRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
@@ -716,6 +729,13 @@ declare module '@tanstack/react-router' {
       path: '/ledgers'
       fullPath: '/ledgers'
       preLoaderRoute: typeof LedgersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/knowledge-graph': {
+      id: '/knowledge-graph'
+      path: '/knowledge-graph'
+      fullPath: '/knowledge-graph'
+      preLoaderRoute: typeof KnowledgeGraphRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/journal-entries': {
@@ -1149,6 +1169,7 @@ const rootRouteChildren: RootRouteChildren = {
   FixedAssetsRegisterRoute: FixedAssetsRegisterRoute,
   GeneralLedgerRoute: GeneralLedgerRoute,
   JournalEntriesRoute: JournalEntriesRoute,
+  KnowledgeGraphRoute: KnowledgeGraphRoute,
   LedgersRoute: LedgersRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
