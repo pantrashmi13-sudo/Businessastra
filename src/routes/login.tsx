@@ -121,14 +121,22 @@ function LoginPage() {
             </div>
           </div>
 
-          {/* User Manual Trigger Button */}
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white gap-2">
+          {/* User Manual and Marketing Document Buttons */}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white gap-2" asChild>
+              <a href="/BIZASTRA_MARKETING.md" target="_blank" rel="noopener noreferrer">
                 <BookOpen className="h-4 w-4" />
-                <span>User Manual</span>
-              </Button>
-            </SheetTrigger>
+                <span>Marketing Doc</span>
+              </a>
+            </Button>
+            
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white gap-2">
+                  <HelpCircle className="h-4 w-4" />
+                  <span>User Manual</span>
+                </Button>
+              </SheetTrigger>
             <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2 text-primary">
@@ -149,6 +157,7 @@ function LoginPage() {
               </div>
             </SheetContent>
           </Sheet>
+          </div>
         </div>
 
         <div className="relative z-10 my-8 lg:my-0 space-y-6">
