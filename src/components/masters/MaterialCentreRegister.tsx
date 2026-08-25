@@ -668,12 +668,12 @@ export function MaterialCentreRegister() {
                           const headers = [
                             "Item Code", "Item Name", "Unit", "HSN Code", "VAT Rate",
                             "Selling Price", "Category", "Parent Category", "Sub Parent Category",
-                            "Sub Category", "Warehouse", "Status", "Alt UOM", "Alt UOM Conversion",
+                            "Sub Category", "Warehouse", "RAG Number", "Status", "Alt UOM", "Alt UOM Conversion",
                             "Opening Qty", "Opening Rate", "Opening Value", "Lot Number", "Expiry Date"
                           ];
                           const sampleRow = [
                             "ITEM-001", "Example Item Name", "NOS", "8517", "13", "1500",
-                            "Electronics", "Phones", "Smartphones", "Android", "Main Warehouse",
+                            "Electronics", "Phones", "Smartphones", "Android", "Main Warehouse", "Rack A, Row 2",
                             "Active", "BOX", "10", "50", "1000", "50000", "LOT-1029", "2027-12-31"
                           ];
                           const csvContent = [headers.join(","), sampleRow.join(",")].join("\n");
@@ -698,12 +698,12 @@ export function MaterialCentreRegister() {
                           const headers = [
                             "Item Code", "Item Name", "Unit", "HSN Code", "VAT Rate",
                             "Selling Price", "Category", "Parent Category", "Sub Parent Category",
-                            "Sub Category", "Warehouse", "Status", "Alt UOM", "Alt UOM Conversion",
+                            "Sub Category", "Warehouse", "RAG Number", "Status", "Alt UOM", "Alt UOM Conversion",
                             "Opening Qty", "Opening Rate", "Opening Value", "Lot Number", "Expiry Date"
                           ];
                           const sampleRow = [
                             "ITEM-001", "Example Item Name", "NOS", "8517", "13", "1500",
-                            "Electronics", "Phones", "Smartphones", "Android", "Main Warehouse",
+                            "Electronics", "Phones", "Smartphones", "Android", "Main Warehouse", "Rack A, Row 2",
                             "Active", "BOX", "10", "50", "1000", "50000", "LOT-1029", "2027-12-31"
                           ];
                           const XLSX = await import("xlsx");
@@ -873,6 +873,7 @@ export function MaterialCentreRegister() {
                                   const subParentCategory = getVal(row, "subparentcategory") || null;
                                   const subCategory = getVal(row, "subcategory") || null;
                                   const warehouse = getVal(row, "warehouse") || "Main Warehouse";
+                                  const ragNumber = getVal(row, "ragnumber") || null;
                                   const status = getVal(row, "status") || "Active";
                                   const altUom = getVal(row, "altuom") || null;
                                   const altUomConversion = getVal(row, "altuomconversion") ? Number(getVal(row, "altuomconversion")) : null;
@@ -888,7 +889,7 @@ export function MaterialCentreRegister() {
                                     item_code: itemCode, item_name: itemName, uom, hsn_code: hsnCode,
                                     vat_rate: vatRate, selling_price: sellingPrice, category,
                                     parent_category: parentCategory, sub_parent_category: subParentCategory,
-                                    sub_category: subCategory, warehouse, status, alt_uom: altUom,
+                                    sub_category: subCategory, warehouse, rag_number: ragNumber, status, alt_uom: altUom,
                                     alt_uom_conversion: altUomConversion, opening_qty: openingQty,
                                     opening_rate: openingRate, opening_value: openingValue,
                                     qty: existingItem ? undefined : openingQty

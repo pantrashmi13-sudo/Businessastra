@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { generateEmbedding } from "@/lib/embeddings";
 import {
   MessageSquare,
   Send,
@@ -299,6 +300,29 @@ function ChatPage() {
           content: m.content,
         }));
 
+        let ragContext = "";
+        try {
+          // Generate embedding for the user's query
+          const queryEmbedding = await generateEmbedding(trimmed);
+          
+          // Search the knowledge base in Supabase
+          const { data: documents } = await supabase.rpc("match_documents", {
+            query_embedding: queryEmbedding,
+            match_threshold: 0.3, // Require at least 30% similarity
+            match_count: 5 // Return top 5 chunks
+          });
+
+          if (documents && documents.length > 0) {
+            ragContext = "\n\n=== RELEVANT KNOWLEDGE BASE DOCUMENTS ===\n" + 
+              "Use these documents to help answer the user's query if relevant:\n" +
+              documents.map((d: any) => `- [${d.metadata?.name || 'Document'}]: ${d.content}`).join("\n\n");
+          }
+        } catch (err) {
+          console.warn("RAG search failed or knowledge_base not set up:", err);
+        }
+
+        const systemPrompt = buildSystemPrompt(ctx) + ragContext;
+
         const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -310,7 +334,7 @@ function ChatPage() {
           body: JSON.stringify({
             model: "openrouter/auto",
             messages: [
-              { role: "system", content: buildSystemPrompt(ctx) },
+              { role: "system", content: systemPrompt },
               ...history,
               { role: "user", content: trimmed },
             ],

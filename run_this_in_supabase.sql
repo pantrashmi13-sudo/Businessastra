@@ -66,3 +66,49 @@ BEGIN
 
   END LOOP;
 END $$;
+
+-- ============================================================
+-- KNOWLEDGE BASE & RAG MIGRATION
+-- ============================================================
+-- Enable the pgvector extension to work with embedding vectors
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create a table to store documents and their embeddings
+CREATE TABLE IF NOT EXISTS knowledge_base (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  content TEXT NOT NULL,
+  metadata JSONB,
+  embedding vector(384), -- 384 dimensions for Xenova/all-MiniLM-L6-v2
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable RLS
+ALTER TABLE knowledge_base ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public all knowledge_base" ON knowledge_base FOR ALL USING (true) WITH CHECK (true);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.knowledge_base TO anon, authenticated;
+GRANT ALL ON public.knowledge_base TO service_role;
+
+-- Create a function to search for documents based on cosine distance
+CREATE OR REPLACE FUNCTION match_documents (
+  query_embedding vector(384),
+  match_threshold float,
+  match_count int
+)
+RETURNS TABLE (
+  id uuid,
+  content text,
+  metadata jsonb,
+  similarity float
+)
+LANGUAGE sql STABLE
+AS $$
+  select
+    knowledge_base.id,
+    knowledge_base.content,
+    knowledge_base.metadata,
+    1 - (knowledge_base.embedding <=> query_embedding) as similarity
+  from knowledge_base
+  where 1 - (knowledge_base.embedding <=> query_embedding) > match_threshold
+  order by knowledge_base.embedding <=> query_embedding
+  limit match_count;
+$$;

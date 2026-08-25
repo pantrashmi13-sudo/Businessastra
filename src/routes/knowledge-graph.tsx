@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { KnowledgeGraph } from "@/components/knowledge-graph/KnowledgeGraph";
 import { DataKnowledgeGraph } from "@/components/knowledge-graph/DataKnowledgeGraph";
+import { RAGManager } from "@/components/knowledge-graph/RAGManager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Network, Database } from "lucide-react";
+import { Network, Database, BrainCircuit } from "lucide-react";
 
 export const Route = createFileRoute("/knowledge-graph")({
   component: KnowledgeGraphPage,
@@ -27,7 +28,7 @@ function KnowledgeGraphPage() {
           </div>
 
           {/* View Tabs – same Tabs context as content below */}
-          <TabsList className="grid w-full sm:w-[280px] grid-cols-2 h-8 p-0.5">
+          <TabsList className="grid w-full sm:w-[420px] grid-cols-3 h-8 p-0.5">
             <TabsTrigger value="data" className="text-xs flex items-center gap-1.5 py-1">
               <Database className="h-3.5 w-3.5" />
               Data Explorer
@@ -35,6 +36,10 @@ function KnowledgeGraphPage() {
             <TabsTrigger value="schema" className="text-xs flex items-center gap-1.5 py-1">
               <Network className="h-3.5 w-3.5" />
               Schema Map
+            </TabsTrigger>
+            <TabsTrigger value="rag" className="text-xs flex items-center gap-1.5 py-1">
+              <BrainCircuit className="h-3.5 w-3.5" />
+              Document RAG
             </TabsTrigger>
           </TabsList>
         </div>
@@ -46,6 +51,9 @@ function KnowledgeGraphPage() {
           </TabsContent>
           <TabsContent value="schema" className="h-full m-0">
             <KnowledgeGraph />
+          </TabsContent>
+          <TabsContent value="rag" className="h-full m-0">
+            <RAGManager />
           </TabsContent>
         </div>
       </Tabs>
