@@ -63,6 +63,7 @@ export function DataKnowledgeGraph() {
     edges,
     isLoading,
     activePreset,
+    expandedNodes,
     initGraph,
     loadOverdueDebtors,
     loadCashTrail,
@@ -70,6 +71,8 @@ export function DataKnowledgeGraph() {
     loadItemRateMismatch,
     searchEntities,
     expandNode,
+    collapseNode,
+    clearGraph,
   } = useDataGraph();
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -125,24 +128,40 @@ export function DataKnowledgeGraph() {
   const handleNodeClick = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     const node = nodes.find((n) => n.id === id);
-    // Group nodes expand immediately on single click
-    if (node?.isGroup) {
-      expandNode(id);
+    
+    // Toggle selection
+    if (selectedNode === id) {
+      setSelectedNode(null);
     } else {
       setSelectedNode(id);
+    }
+
+    // Toggle expansion (Group nodes expand on single click)
+    if (node?.isGroup) {
+      if (expandedNodes.has(id)) {
+        collapseNode(id);
+      } else {
+        expandNode(id);
+      }
     }
   };
 
   const handleNodeDoubleClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    expandNode(id);
+    const node = nodes.find((n) => n.id === id);
+    if (!node?.isGroup) {
+      if (expandedNodes.has(id)) {
+        collapseNode(id);
+      } else {
+        expandNode(id);
+      }
+    }
   };
 
   // Node Drag Handlers
   const handleNodeMouseDown = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setDraggedNodeId(id);
-    setSelectedNode(id);
   };
 
   // Mouse pan/drag handlers

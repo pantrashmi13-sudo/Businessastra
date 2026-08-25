@@ -43,6 +43,7 @@ export function useDataGraph() {
   const [edges, setEdges] = useState<Map<string, DataEdge>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [activePreset, setActivePreset] = useState<string>("all");
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
   const addData = useCallback((newNodes: DataNode[], newEdges: DataEdge[]) => {
     setNodes((prevNodes) => {
@@ -60,6 +61,7 @@ export function useDataGraph() {
   const clearGraph = useCallback(() => {
     setNodes(new Map());
     setEdges(new Map());
+    setExpandedNodes(new Set());
   }, []);
 
   const makeNode = (table: string, row: any): DataNode => {
@@ -544,6 +546,11 @@ export function useDataGraph() {
         }
 
         addData(newNodes, newEdges);
+        setExpandedNodes((prev) => {
+          const next = new Set(prev);
+          next.add(nodeId);
+          return next;
+        });
       } catch (err: any) {
         toast.error("Failed to fetch connected data");
         console.error(err);
@@ -553,6 +560,54 @@ export function useDataGraph() {
     },
     [company?.id, addData]
   );
+
+  const collapseNode = useCallback((nodeId: string) => {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      next.delete(nodeId);
+      return next;
+    });
+
+    setEdges((prevEdges) => {
+      const nextEdges = new Map(prevEdges);
+      const edgeIdsToRemove = new Set<string>();
+      
+      // Find all edges extending *from* or *to* this node (that were dynamically added by expand)
+      // Since it's a star-like expansion, mostly they are edges where source == nodeId.
+      nextEdges.forEach((edge, id) => {
+        if (edge.source === nodeId || edge.target === nodeId) {
+          edgeIdsToRemove.add(id);
+        }
+      });
+      
+      edgeIdsToRemove.forEach((id) => nextEdges.delete(id));
+      
+      // Now remove orphan nodes (nodes that have no edges attached anymore, except root nodes)
+      setNodes((prevNodes) => {
+        const nextNodes = new Map(prevNodes);
+        
+        // Count edge connections
+        const connectedCount = new Map<string, number>();
+        nextEdges.forEach((edge) => {
+          connectedCount.set(edge.source, (connectedCount.get(edge.source) || 0) + 1);
+          connectedCount.set(edge.target, (connectedCount.get(edge.target) || 0) + 1);
+        });
+
+        // Remove nodes with 0 connections, unless it's the root company or the node itself
+        nextNodes.forEach((node, id) => {
+          if (!connectedCount.has(id) && id !== nodeId && node.table !== "companies") {
+            // Keep group nodes if they belong to the company
+            if (node.isGroup && id.endsWith(`:${company?.id}`)) return;
+            nextNodes.delete(id);
+          }
+        });
+
+        return nextNodes;
+      });
+
+      return nextEdges;
+    });
+  }, [company?.id]);
 
   // Initialize with Root Company — show group nodes (not raw data)
   const initGraph = useCallback(async () => {
@@ -918,6 +973,7 @@ export function useDataGraph() {
     edges: Array.from(edges.values()),
     isLoading,
     activePreset,
+    expandedNodes,
     initGraph,
     loadOverdueDebtors,
     loadCashTrail,
@@ -925,6 +981,7 @@ export function useDataGraph() {
     loadItemRateMismatch,
     searchEntities,
     expandNode,
+    collapseNode,
     clearGraph,
   };
 }
