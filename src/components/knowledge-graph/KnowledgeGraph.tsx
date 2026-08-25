@@ -40,16 +40,18 @@ export function KnowledgeGraph() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [draggedNode, setDraggedNode] = useState<string | null>(null);
   const panStart = useRef({ x: 0, y: 0 });
   const [showClusters, setShowClusters] = useState(true);
 
   const stats = useMemo(() => getGraphStats(), []);
 
-  // Compute layout once
-  const layout = useMemo(() => {
+  // Compute layout once and store in state for dragging
+  const [layout, setLayout] = useState<GraphNode[]>([]);
+  useEffect(() => {
     const nodes = getAllNodes();
     const edges = getAllEdges();
-    return computeLayout(nodes, edges, { width: 1400, height: 900, iterations: 250 });
+    setLayout(computeLayout(nodes, edges, { width: 1400, height: 900, iterations: 250 }));
   }, []);
 
   const nodeMap = useMemo(() => {
@@ -119,17 +121,28 @@ export function KnowledgeGraph() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (isPanning) {
+      if (draggedNode && svgRef.current) {
+        const rect = svgRef.current.getBoundingClientRect();
+        const x = (e.clientX - rect.left - pan.x) / zoom;
+        const y = (e.clientY - rect.top - pan.y) / zoom;
+
+        setLayout((prev) =>
+          prev.map((n) => (n.id === draggedNode ? { ...n, x, y } : n))
+        );
+      } else if (isPanning) {
         setPan({
           x: e.clientX - panStart.current.x,
           y: e.clientY - panStart.current.y,
         });
       }
     },
-    [isPanning],
+    [isPanning, pan, zoom, draggedNode],
   );
 
-  const handleMouseUp = useCallback(() => setIsPanning(false), []);
+  const handleMouseUp = useCallback(() => {
+    setIsPanning(false);
+    setDraggedNode(null);
+  }, []);
 
   // Wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -460,6 +473,10 @@ export function KnowledgeGraph() {
                     clearPath();
                   }
                 }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setDraggedNode(node.id);
+                }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   setSelectedNode(node.id);
@@ -511,6 +528,30 @@ export function KnowledgeGraph() {
                   >
                     {node.entity}
                   </text>
+                )}
+
+                {/* Columns / Keys */}
+                {zoom > 1.2 && (
+                  <g transform={`translate(0, ${r + 24})`} className="pointer-events-none select-none">
+                    {node.columns.map((col, idx) => {
+                      const isPk = col === "id";
+                      const isFk = col.endsWith("_id");
+                      const colColor = isPk ? "#eab308" : isFk ? "#3b82f6" : "#94a3b8";
+                      const icon = isPk ? "🔑" : isFk ? "🔗" : "•";
+                      return (
+                        <text
+                          key={col}
+                          textAnchor="middle"
+                          dy={idx * 10}
+                          fill={colColor}
+                          fontSize={6}
+                          fontWeight={isPk || isFk ? 600 : 400}
+                        >
+                          {icon} {col}
+                        </text>
+                      );
+                    })}
+                  </g>
                 )}
 
                 {/* Edge count badge */}

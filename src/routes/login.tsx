@@ -124,7 +124,7 @@ function LoginPage() {
           {/* User Manual and Marketing Document Buttons */}
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white gap-2" asChild>
-              <a href="/BIZASTRA_MARKETING.md" target="_blank" rel="noopener noreferrer">
+              <a href="/BIZASTRA_MARKETING.pdf" target="_blank" rel="noopener noreferrer">
                 <BookOpen className="h-4 w-4" />
                 <span>Marketing Doc</span>
               </a>
