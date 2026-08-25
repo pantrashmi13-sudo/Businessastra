@@ -284,6 +284,11 @@ function ChatPage() {
       setStreamingContent("");
 
       const apiKey = OPENROUTER_API_KEY;
+      if (!apiKey) {
+        toast.error("OpenRouter API key is missing. Please add VITE_OPENROUTER_API_KEY to your Vercel Environment Variables and redeploy.");
+        setIsLoading(false);
+        return;
+      }
 
       const controller = new AbortController();
       abortRef.current = controller;
