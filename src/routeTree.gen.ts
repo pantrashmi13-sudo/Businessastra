@@ -21,6 +21,7 @@ import { Route as JournalEntriesRouteImport } from './routes/journal-entries'
 import { Route as GeneralLedgerRouteImport } from './routes/general-ledger'
 import { Route as FixedAssetsRegisterRouteImport } from './routes/fixed-assets-register'
 import { Route as CoaRouteImport } from './routes/coa'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as CashBankRouteImport } from './routes/cash-bank'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SalesReturnsIndexRouteImport } from './routes/sales-returns.index'
@@ -120,6 +121,11 @@ const FixedAssetsRegisterRoute = FixedAssetsRegisterRouteImport.update({
 const CoaRoute = CoaRouteImport.update({
   id: '/coa',
   path: '/coa',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CashBankRoute = CashBankRouteImport.update({
@@ -330,6 +336,7 @@ const CashBankBankIdEditRoute = CashBankBankIdEditRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/cash-bank': typeof CashBankRouteWithChildren
+  '/chat': typeof ChatRoute
   '/coa': typeof CoaRoute
   '/fixed-assets-register': typeof FixedAssetsRegisterRoute
   '/general-ledger': typeof GeneralLedgerRoute
@@ -383,6 +390,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/chat': typeof ChatRoute
   '/coa': typeof CoaRoute
   '/fixed-assets-register': typeof FixedAssetsRegisterRoute
   '/general-ledger': typeof GeneralLedgerRoute
@@ -435,6 +443,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/cash-bank': typeof CashBankRouteWithChildren
+  '/chat': typeof ChatRoute
   '/coa': typeof CoaRoute
   '/fixed-assets-register': typeof FixedAssetsRegisterRoute
   '/general-ledger': typeof GeneralLedgerRoute
@@ -491,6 +500,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/cash-bank'
+    | '/chat'
     | '/coa'
     | '/fixed-assets-register'
     | '/general-ledger'
@@ -544,6 +554,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/chat'
     | '/coa'
     | '/fixed-assets-register'
     | '/general-ledger'
@@ -595,6 +606,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/cash-bank'
+    | '/chat'
     | '/coa'
     | '/fixed-assets-register'
     | '/general-ledger'
@@ -650,6 +662,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CashBankRoute: typeof CashBankRouteWithChildren
+  ChatRoute: typeof ChatRoute
   CoaRoute: typeof CoaRoute
   FixedAssetsRegisterRoute: typeof FixedAssetsRegisterRoute
   GeneralLedgerRoute: typeof GeneralLedgerRoute
@@ -764,6 +777,13 @@ declare module '@tanstack/react-router' {
       path: '/coa'
       fullPath: '/coa'
       preLoaderRoute: typeof CoaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cash-bank': {
@@ -1165,6 +1185,7 @@ const SalesReturnsRouteWithChildren = SalesReturnsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CashBankRoute: CashBankRouteWithChildren,
+  ChatRoute: ChatRoute,
   CoaRoute: CoaRoute,
   FixedAssetsRegisterRoute: FixedAssetsRegisterRoute,
   GeneralLedgerRoute: GeneralLedgerRoute,

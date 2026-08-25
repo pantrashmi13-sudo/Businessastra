@@ -20,6 +20,7 @@ import {
   ScrollText,
   ClipboardList,
   Network,
+  MessageSquare,
 } from "lucide-react";
 
 import {
@@ -69,7 +70,10 @@ const accounting = [
   { title: "General Ledger", url: "/general-ledger", icon: ClipboardList },
 ];
 
-const system = [{ title: "Knowledge Graph", url: "/knowledge-graph", icon: Network }];
+const system = [
+  { title: "Knowledge Graph", url: "/knowledge-graph", icon: Network },
+  { title: "AI Chat", url: "/chat", icon: MessageSquare },
+];
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
