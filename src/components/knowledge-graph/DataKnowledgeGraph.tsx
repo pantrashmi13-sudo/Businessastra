@@ -67,6 +67,7 @@ export function DataKnowledgeGraph() {
     loadOverdueDebtors,
     loadCashTrail,
     loadInventoryMap,
+    loadItemRateMismatch,
     searchEntities,
     expandNode,
   } = useDataGraph();
@@ -123,7 +124,13 @@ export function DataKnowledgeGraph() {
 
   const handleNodeClick = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
-    setSelectedNode(id);
+    const node = nodes.find((n) => n.id === id);
+    // Group nodes expand immediately on single click
+    if (node?.isGroup) {
+      expandNode(id);
+    } else {
+      setSelectedNode(id);
+    }
   };
 
   const handleNodeDoubleClick = (id: string, e: React.MouseEvent) => {
@@ -434,6 +441,15 @@ export function DataKnowledgeGraph() {
             onClick={loadInventoryMap}
           >
             📦 Warehouse & Stock
+          </Button>
+          <Button
+            type="button"
+            variant={activePreset === "rate-mismatch" ? "secondary" : "outline"}
+            size="sm"
+            className="h-6.5 text-[11px] px-2.5 shrink-0 rounded-full"
+            onClick={loadItemRateMismatch}
+          >
+            ⚠️ Item Rate Mismatch
           </Button>
         </div>
       </div>

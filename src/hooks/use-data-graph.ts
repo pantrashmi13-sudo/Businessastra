@@ -12,15 +12,16 @@ export type EntityCategory =
   | "accounting";
 
 export interface DataNode {
-  id: string; // Composite ID: "table:uuid"
-  table: string; // e.g. "companies", "bills", "customers"
-  label: string; // Display text (e.g. "Bill INV-100", "Customer ABC")
-  subLabel?: string; // e.g. "NPR 45,000" or "Stock: 120"
+  id: string;
+  table: string;
+  label: string;
+  subLabel?: string;
   type: EntityCategory;
   status?: "paid" | "unpaid" | "partial" | "approved" | "pending" | "critical" | "active";
   amount?: number;
   data: Record<string, any>;
-  routeUrl?: string; // Direct link to open this record in Bizastra
+  routeUrl?: string;
+  isGroup?: boolean; // group/category nodes (Customers, Vendors, VAT, CoA)
 }
 
 export interface DataEdge {
@@ -61,7 +62,6 @@ export function useDataGraph() {
     setEdges(new Map());
   }, []);
 
-  // Format node helper with deep links and rich badges
   const makeNode = (table: string, row: any): DataNode => {
     const id = `${table}:${row.id}`;
     let label = row.name || row.id.substring(0, 8);
@@ -70,6 +70,7 @@ export function useDataGraph() {
     let status: DataNode["status"] = undefined;
     let amount: number | undefined = undefined;
     let routeUrl: string | undefined = undefined;
+    let isGroup = false;
 
     switch (table) {
       case "companies":
@@ -78,6 +79,40 @@ export function useDataGraph() {
         type = "core";
         status = "active";
         break;
+
+      // ── Virtual group nodes ──────────────────────────────────────
+      case "customer-group":
+        label = "Customers";
+        subLabel = "All clients";
+        type = "master";
+        status = "active";
+        isGroup = true;
+        break;
+
+      case "vendor-group":
+        label = "Vendors";
+        subLabel = "All suppliers";
+        type = "master";
+        status = "active";
+        isGroup = true;
+        break;
+
+      case "vat-group":
+        label = "VAT";
+        subLabel = "Tax register";
+        type = "financial";
+        status = "pending";
+        isGroup = true;
+        break;
+
+      case "coa-group":
+        label = "Chart of Accounts";
+        subLabel = "Ledger structure";
+        type = "accounting";
+        status = "active";
+        isGroup = true;
+        break;
+      // ────────────────────────────────────────────────────────────
 
       case "customers":
         label = row.name || "Customer";
@@ -144,7 +179,7 @@ export function useDataGraph() {
 
       case "payment_vouchers":
         label = `Payment #${row.voucher_number || row.id.substring(0, 6)}`;
-        amount = Number(row.amount ?? 0);
+        amount = Number(row.total_amount ?? row.amount ?? 0);
         subLabel = `NPR ${amount.toLocaleString()} Out`;
         type = "financial";
         status = "paid";
@@ -153,7 +188,7 @@ export function useDataGraph() {
 
       case "receipt_vouchers":
         label = `Receipt #${row.voucher_number || row.id.substring(0, 6)}`;
-        amount = Number(row.amount ?? 0);
+        amount = Number(row.total_amount ?? row.amount ?? 0);
         subLabel = `NPR ${amount.toLocaleString()} In`;
         type = "financial";
         status = "paid";
@@ -183,12 +218,26 @@ export function useDataGraph() {
         type = "transaction";
         break;
 
+      case "chart_of_accounts":
+        label = row.name || "Account";
+        subLabel = `${row.classification || ""} · ${row.type || ""}`;
+        type = "accounting";
+        break;
+
+      case "vat-entry":
+        label = `VAT: ${row.label}`;
+        subLabel = `NPR ${Number(row.amount ?? 0).toLocaleString()}`;
+        type = "financial";
+        amount = Number(row.amount ?? 0);
+        status = row.amount > 0 ? "approved" : "pending";
+        break;
+
       default:
         label = row.name || row.title || row.id.substring(0, 8);
         type = "core";
     }
 
-    return { id, table, label, subLabel, type, status, amount, data: row, routeUrl };
+    return { id, table, label, subLabel, type, status, amount, data: row, routeUrl, isGroup };
   };
 
   // Expand a specific node dynamically
@@ -202,142 +251,162 @@ export function useDataGraph() {
         const newNodes: DataNode[] = [];
         const newEdges: DataEdge[] = [];
 
-        // 🏢 Expand Company
-        if (table === "companies") {
-          const [billsRes, custRes, vendorRes, whRes] = await Promise.all([
-            supabase.from("bills").select("*").eq("company_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-            supabase.from("customers").select("*").eq("company_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-            supabase.from("vendors").select("*").eq("company_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-            supabase.from("warehouses").select("*").eq("company_id", rowId).order("is_main", { ascending: false }).limit(RELATION_LIMIT),
-          ]);
+      // 🏢 Expand Company → show group category nodes
+      if (table === "companies") {
+        const companyId = rowId;
+        const groupDefs = [
+          { table: "customer-group", id: `customer-group:${companyId}`, name: "Customers", link: "client" },
+          { table: "vendor-group", id: `vendor-group:${companyId}`, name: "Vendors", link: "supplier" },
+          { table: "vat-group", id: `vat-group:${companyId}`, name: "VAT", link: "tax" },
+          { table: "coa-group", id: `coa-group:${companyId}`, name: "CoA", link: "ledger" },
+        ];
 
-          (billsRes.data || []).forEach((b) => {
-            const n = makeNode("bills", b);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: "procured",
-              amount: Number(b.final_amount ?? 0),
-              status: b.status,
-            });
-          });
+        groupDefs.forEach(({ table: gt, id: gid, name, link }) => {
+          newNodes.push(makeNode(gt, { id: companyId, name }));
+          newEdges.push({ id: `${nodeId}-${gid}`, source: nodeId, target: gid, label: link });
+        });
+      }
 
-          (custRes.data || []).forEach((c) => {
-            const n = makeNode("customers", c);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: "client",
-            });
-          });
+      // 👥 Expand Customer Group → show all customers
+      if (table === "customer-group") {
+        const companyId = rowId;
+        const { data: customers } = await supabase
+          .from("customers")
+          .select("*")
+          .eq("company_id", companyId)
+          .order("name", { ascending: true })
+          .limit(20);
 
-          (vendorRes.data || []).forEach((v) => {
-            const n = makeNode("vendors", v);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: "supplier",
-            });
-          });
+        (customers || []).forEach((c) => {
+          const n = makeNode("customers", c);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "client" });
+        });
+      }
 
-          (whRes.data || []).forEach((w) => {
-            const n = makeNode("warehouses", w);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: w.is_main ? "main storage" : "facility",
-            });
-          });
-        }
+      // 🏭 Expand Vendor Group → show all vendors
+      if (table === "vendor-group") {
+        const companyId = rowId;
+        const { data: vendors } = await supabase
+          .from("vendors")
+          .select("*")
+          .eq("company_id", companyId)
+          .order("name", { ascending: true })
+          .limit(20);
 
-        // 👤 Expand Customer
-        if (table === "customers") {
-          const [invoicesRes, challansRes, receiptsRes] = await Promise.all([
-            supabase.from("sales_invoices" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-            supabase.from("delivery_challans" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-            supabase.from("receipt_vouchers" as any).select("*").eq("received_from", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-          ]);
+        (vendors || []).forEach((v) => {
+          const n = makeNode("vendors", v);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "supplier" });
+        });
+      }
 
-          (invoicesRes.data || []).forEach((inv: any) => {
-            const n = makeNode("sales_invoices", inv);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: "invoiced",
-              amount: Number(inv.final_amount ?? inv.total_amount ?? 0),
-              date: inv.invoice_date,
-              animated: true,
-            });
-          });
+      // 📊 Expand VAT Group → show VAT summary per invoice/bill
+      if (table === "vat-group") {
+        const companyId = rowId;
+        const [salesRes, purchaseRes] = await Promise.all([
+          supabase.from("sales_invoices" as any).select("id,invoice_number,vat_amount,total_amount,status,customer_id,customers(name)").eq("company_id", companyId).order("created_at", { ascending: false }).limit(10),
+          supabase.from("bills").select("id,bill_number,vat_amount,final_amount,status,vendor_id,vendors(name)").eq("company_id", companyId).order("created_at", { ascending: false }).limit(10),
+        ]);
 
-          (challansRes.data || []).forEach((ch: any) => {
-            const n = makeNode("delivery_challans", ch);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: "dispatched",
-            });
-          });
+        (salesRes.data || []).forEach((inv: any) => {
+          const vatAmount = Number(inv.vat_amount ?? 0);
+          const n: DataNode = {
+            id: `vat-out:${inv.id}`,
+            table: "vat-entry",
+            label: `VAT Out: ${inv.invoice_number || inv.id.substring(0, 6)}`,
+            subLabel: `NPR ${vatAmount.toLocaleString()} (${(inv as any).customers?.name || ""})`,
+            type: "financial",
+            status: "approved",
+            amount: vatAmount,
+            data: inv,
+            isGroup: false,
+          };
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "output VAT", amount: vatAmount });
+        });
 
-          (receiptsRes.data || []).forEach((rc: any) => {
-            const n = makeNode("receipt_vouchers", rc);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${n.id}-${nodeId}`,
-              source: n.id,
-              target: nodeId,
-              label: "received payment",
-              amount: Number(rc.amount ?? 0),
-              animated: true,
-            });
-          });
-        }
+        (purchaseRes.data || []).forEach((bill: any) => {
+          const vatAmount = Number(bill.vat_amount ?? 0);
+          const n: DataNode = {
+            id: `vat-in:${bill.id}`,
+            table: "vat-entry",
+            label: `VAT In: ${bill.bill_number || bill.id.substring(0, 6)}`,
+            subLabel: `NPR ${vatAmount.toLocaleString()} (${(bill as any).vendors?.name || ""})`,
+            type: "accounting",
+            status: "pending",
+            amount: vatAmount,
+            data: bill,
+            isGroup: false,
+          };
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "input VAT", amount: vatAmount });
+        });
+      }
 
-        // 🏭 Expand Vendor
-        if (table === "vendors") {
-          const [billsRes, paymentsRes] = await Promise.all([
-            supabase.from("bills").select("*").eq("vendor_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-            supabase.from("payment_vouchers" as any).select("*").eq("paid_to", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-          ]);
+      // 📚 Expand Chart of Accounts Group → show COA
+      if (table === "coa-group") {
+        const companyId = rowId;
+        const { data: coa } = await supabase
+          .from("chart_of_accounts")
+          .select("*")
+          .eq("company_id", companyId)
+          .order("account_code", { ascending: true })
+          .limit(20);
 
-          (billsRes.data || []).forEach((b) => {
-            const n = makeNode("bills", b);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: "billed",
-              amount: Number(b.final_amount ?? 0),
-              date: b.invoice_date || undefined,
-            });
-          });
+        (coa || []).forEach((acct: any) => {
+          const n = makeNode("chart_of_accounts", acct);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: acct.classification || "account" });
+        });
+      }
 
-          (paymentsRes.data || []).forEach((p: any) => {
-            const n = makeNode("payment_vouchers", p);
-            newNodes.push(n);
-            newEdges.push({
-              id: `${nodeId}-${n.id}`,
-              source: nodeId,
-              target: n.id,
-              label: "paid out",
-              amount: Number(p.amount ?? 0),
-              animated: true,
-            });
-          });
-        }
+      // 👤 Expand Customer
+      if (table === "customers") {
+        const [invoicesRes, challansRes, receiptsRes] = await Promise.all([
+          supabase.from("sales_invoices" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
+          supabase.from("delivery_challans" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
+          supabase.from("receipt_vouchers" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
+        ]);
+
+        (invoicesRes.data || []).forEach((inv: any) => {
+          const n = makeNode("sales_invoices", inv);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "invoiced", amount: Number(inv.total_amount ?? 0), date: inv.invoice_date, animated: true });
+        });
+
+        (challansRes.data || []).forEach((ch: any) => {
+          const n = makeNode("delivery_challans", ch);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "dispatched" });
+        });
+
+        (receiptsRes.data || []).forEach((rc: any) => {
+          const n = makeNode("receipt_vouchers", rc);
+          newNodes.push(n);
+          newEdges.push({ id: `${n.id}-${nodeId}`, source: n.id, target: nodeId, label: "payment received", amount: Number(rc.total_amount ?? 0), animated: true });
+        });
+      }
+
+      // 🏭 Expand Vendor → show bills and payments
+      if (table === "vendors") {
+        const [billsRes, paymentsRes] = await Promise.all([
+          supabase.from("bills").select("*").eq("vendor_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
+          supabase.from("payment_vouchers" as any).select("*").eq("vendor_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
+        ]);
+
+        (billsRes.data || []).forEach((b) => {
+          const n = makeNode("bills", b);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "billed", amount: Number(b.final_amount ?? 0), date: b.invoice_date || undefined });
+        });
+
+        (paymentsRes.data || []).forEach((p: any) => {
+          const n = makeNode("payment_vouchers", p);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "paid out", amount: Number(p.total_amount ?? 0), animated: true });
+        });
+      }
 
         // 🧾 Expand Purchase Bill
         if (table === "bills") {
@@ -485,7 +554,7 @@ export function useDataGraph() {
     [company?.id, addData]
   );
 
-  // Initialize with Root Company
+  // Initialize with Root Company — show group nodes (not raw data)
   const initGraph = useCallback(async () => {
     if (!company?.id) return;
     clearGraph();
@@ -502,15 +571,28 @@ export function useDataGraph() {
       if (error) throw error;
       if (data) {
         const rootNode = makeNode("companies", data);
-        addData([rootNode], []);
-        await expandNode(rootNode.id);
+        // Create group category nodes
+        const companyId = company.id;
+        const groupNodes: DataNode[] = [
+          { id: `customer-group:${companyId}`, table: "customer-group", label: "Customers", subLabel: "All clients", type: "master", status: "active", data: { id: companyId }, isGroup: true },
+          { id: `vendor-group:${companyId}`, table: "vendor-group", label: "Vendors", subLabel: "All suppliers", type: "master", status: "active", data: { id: companyId }, isGroup: true },
+          { id: `vat-group:${companyId}`, table: "vat-group", label: "VAT", subLabel: "Tax register", type: "financial", status: "pending", data: { id: companyId }, isGroup: true },
+          { id: `coa-group:${companyId}`, table: "coa-group", label: "Chart of Accounts", subLabel: "Ledger structure", type: "accounting", status: "active", data: { id: companyId }, isGroup: true },
+        ];
+        const groupEdges: DataEdge[] = groupNodes.map((gn) => ({
+          id: `${rootNode.id}-${gn.id}`,
+          source: rootNode.id,
+          target: gn.id,
+          label: gn.table.replace("-group", ""),
+        }));
+        addData([rootNode, ...groupNodes], groupEdges);
       }
     } catch (err: any) {
       toast.error("Failed to initialize graph");
     } finally {
       setIsLoading(false);
     }
-  }, [company?.id, addData, clearGraph, expandNode]);
+  }, [company?.id, addData, clearGraph]);
 
   // Preset 1: Overdue Invoices & Debtors
   const loadOverdueDebtors = useCallback(async () => {
@@ -699,6 +781,97 @@ export function useDataGraph() {
     }
   }, [company?.id, addData, clearGraph]);
 
+  // Preset 4: Item Rate Mismatch — same item purchased at different landing costs
+  const loadItemRateMismatch = useCallback(async () => {
+    if (!company?.id) return;
+    clearGraph();
+    setActivePreset("rate-mismatch");
+    setIsLoading(true);
+
+    try {
+      const { data: lines, error } = await supabase
+        .from("bill_lines")
+        .select("id,ref_id,name,code,per_unit,landing_cost,quantity,bill_id,bills(id,bill_number,vendor_id,vendors(name))")
+        .not("ref_id", "is", null)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      // Group by item ref_id
+      const byItem = new Map<string, any[]>();
+      (lines || []).forEach((line: any) => {
+        const key = line.ref_id;
+        if (!byItem.has(key)) byItem.set(key, []);
+        byItem.get(key)!.push(line);
+      });
+
+      const newNodes: DataNode[] = [];
+      const newEdges: DataEdge[] = [];
+      let mismatchCount = 0;
+
+      byItem.forEach((itemLines, itemId) => {
+        // Check if there are multiple distinct rates
+        const rates = new Set(itemLines.map((l) => Number(l.landing_cost ?? l.per_unit ?? 0).toFixed(2)));
+        if (rates.size <= 1) return; // no mismatch
+        mismatchCount++;
+
+        const firstName = itemLines[0]?.name || itemLines[0]?.code || itemId.substring(0, 8);
+        const allRates = Array.from(rates).map((r) => `NPR ${r}`);
+        // Item center node
+        const itemNode: DataNode = {
+          id: `mismatch-item:${itemId}`,
+          table: "items",
+          label: firstName,
+          subLabel: `${rates.size} different rates ⚠️`,
+          type: "inventory",
+          status: "critical",
+          data: { id: itemId, item_name: firstName },
+          isGroup: false,
+        };
+        newNodes.push(itemNode);
+
+        // Each bill line with that item as a separate node
+        itemLines.forEach((line: any) => {
+          const rate = Number(line.landing_cost ?? line.per_unit ?? 0);
+          const billNum = (line.bills as any)?.bill_number || line.bill_id?.substring(0, 6);
+          const vendorName = (line.bills as any)?.vendors?.name || "";
+          const lineNode: DataNode = {
+            id: `mismatch-line:${line.id}`,
+            table: "bill_lines",
+            label: `Bill #${billNum}`,
+            subLabel: `NPR ${rate.toLocaleString()} / unit (${vendorName})`,
+            type: "transaction",
+            status: "pending",
+            amount: rate,
+            data: line,
+            routeUrl: `/bills/${line.bill_id}`,
+            isGroup: false,
+          };
+          newNodes.push(lineNode);
+          newEdges.push({
+            id: `${itemNode.id}-${lineNode.id}`,
+            source: itemNode.id,
+            target: lineNode.id,
+            label: `NPR ${rate.toLocaleString()}`,
+            amount: rate,
+          });
+        });
+      });
+
+      if (mismatchCount === 0) {
+        toast.success("✅ No rate mismatches found — all item costs are consistent!");
+      } else {
+        addData(newNodes, newEdges);
+        toast.warning(`⚠️ Found ${mismatchCount} items with different landing costs`);
+      }
+    } catch (err: any) {
+      toast.error("Failed to load item rate mismatch");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [company?.id, addData, clearGraph]);
+
   // Global search across entities
   const searchEntities = useCallback(
     async (query: string) => {
@@ -749,6 +922,7 @@ export function useDataGraph() {
     loadOverdueDebtors,
     loadCashTrail,
     loadInventoryMap,
+    loadItemRateMismatch,
     searchEntities,
     expandNode,
     clearGraph,
