@@ -319,14 +319,29 @@ export function BillForm({
       return data ?? [];
     },
   });
+  const activeCompany = useMemo(() => {
+    const list = (companies.data ?? []) as Array<Record<string, unknown>>;
+    return (list.find((c) => c.is_default) ?? list[0]) as Record<string, unknown> | undefined;
+  }, [companies.data]);
+
   const warehouses = useQuery({
-    queryKey: ["warehouses", "list"],
+    queryKey: ["warehouses", "list", activeCompany?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("warehouses").select("*");
+      if (!activeCompany?.id) return [];
+      const { data, error } = await supabase
+        .from("warehouses")
+        .select("*")
+        .eq("company_id", activeCompany.id)
+        .order("name");
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!activeCompany?.id,
   });
+
+  const mainWarehouse = useMemo(() => {
+    return (warehouses.data ?? []).find((w: any) => w.name === "Main Warehouse");
+  }, [warehouses.data]);
 
   const warehouseRags = useQuery({
     queryKey: ["warehouse_rags", "list"],
@@ -388,11 +403,6 @@ export function BillForm({
       }),
     );
   }, [items.data, assets.data]);
-
-  const activeCompany = useMemo(() => {
-    const list = (companies.data ?? []) as Array<Record<string, unknown>>;
-    return (list.find((c) => c.is_default) ?? list[0]) as Record<string, unknown> | undefined;
-  }, [companies.data]);
 
   const companyDateFormat = (activeCompany?.date_format as DateFormat) || "ad";
 
@@ -840,7 +850,7 @@ export function BillForm({
                   ? `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
                   : "");
 
-          const wh = warehouses.data?.find((w: any) => w.name === l.warehouse);
+          const wh = warehouses.data?.find((w: any) => w.name === l.warehouse) || mainWarehouse;
 
           return {
             bill_id: id!,
@@ -862,7 +872,7 @@ export function BillForm({
             line_amount: computeLineAmount(l.quantity, l.per_unit),
             landing_cost: landingCostPerUnit,
             warehouse_id: wh?.id || null,
-            _warehouse_name: l.warehouse, // temporary internal field
+            _warehouse_name: l.warehouse || wh?.name || null, // temporary internal field
           };
         });
       if (linePayloads.length) {
@@ -1009,12 +1019,13 @@ export function BillForm({
               const updatePayload: any = { qty: newQty };
               if (billTypeRef.current === "other_items") updatePayload.is_inventory = false;
               if (line.code && !item[codeField]) updatePayload[codeField] = line.code;
-              if (opts.warehouseMap && opts.warehouseMap[line._originalIdx]) {
-                updatePayload.warehouse = opts.warehouseMap[line._originalIdx];
-                updatePayload.warehouse_id = opts.warehouseMap[line._originalIdx];
+              const resolvedWarehouseId = (vars.warehouseMap && vars.warehouseMap[line._originalIdx]) || mainWarehouse?.id;
+              if (resolvedWarehouseId && !isFixedAssets) {
+                updatePayload.warehouse = resolvedWarehouseId;
+                updatePayload.warehouse_id = resolvedWarehouseId;
               }
-              if (opts.ragMap && opts.ragMap[line._originalIdx]) {
-                updatePayload.rag_id = opts.ragMap[line._originalIdx];
+              if (vars.ragMap && vars.ragMap[line._originalIdx]) {
+                updatePayload.rag_id = vars.ragMap[line._originalIdx];
               }
               await supabase
                 .from(table)
@@ -1025,10 +1036,11 @@ export function BillForm({
           }
 
           // ── 2. Create or update UNMATCHED lines ──
-          const unmatched = lines.filter(
-            (l, idx) => !l.ref_id && l.name.trim() && allowedIndices.has(idx),
-          );
-          for (const line of unmatched) {
+          const unmatchedWithIndex = lines
+            .map((l, idx) => ({ ...l, _originalIdx: idx }))
+            .filter((l) => !l.ref_id && l.name.trim() && allowedIndices.has(l._originalIdx));
+
+          for (const line of unmatchedWithIndex) {
             const autoCode = (line.code || line.name)
               .trim()
               .toUpperCase()
@@ -1075,6 +1087,7 @@ export function BillForm({
                 .eq("id", existing.id);
               updated++;
             } else {
+              const resolvedWarehouseId = (vars.warehouseMap && vars.warehouseMap[line._originalIdx]) || mainWarehouse?.id;
               const payload: Record<string, unknown> = {
                 [codeField]: autoCode,
                 [nameField]: line.name.trim(),
@@ -1083,6 +1096,10 @@ export function BillForm({
                 vat_rate: line.vat_rate,
                 qty: Number(line.quantity) || 1,
               };
+              if (resolvedWarehouseId && !isFixedAssets) {
+                payload.warehouse_id = resolvedWarehouseId;
+                payload.warehouse = resolvedWarehouseId;
+              }
               if (!isFixedAssets) {
                 payload.is_service = isServices;
                 if (billTypeRef.current === "other_items") {
@@ -2084,7 +2101,7 @@ export function BillForm({
                           {!isMatched && billType === "items" && (
                             <>
                               <Select
-                                value={linesWarehouseMap[idx] || lines[idx].warehouse || ""}
+                                value={linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id || ""}
                                 onValueChange={(v) => {
                                   setLinesWarehouseMap((prev) => ({ ...prev, [idx]: v }));
                                   setLinesRagMap((prev) => ({ ...prev, [idx]: "" }));
@@ -2101,7 +2118,7 @@ export function BillForm({
                                   ))}
                                 </SelectContent>
                               </Select>
-                              {(linesWarehouseMap[idx] || lines[idx].warehouse_id) && (
+                              {(linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id) && (
                                 <Select
                                   value={linesRagMap[idx] || ""}
                                   onValueChange={(v) =>
@@ -2116,7 +2133,7 @@ export function BillForm({
                                       .filter(
                                         (r: any) =>
                                           r.warehouse_id ===
-                                          (linesWarehouseMap[idx] || lines[idx].warehouse_id),
+                                          (linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id),
                                       )
                                       .map((rag: any) => (
                                         <SelectItem
