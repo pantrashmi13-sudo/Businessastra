@@ -276,6 +276,13 @@ export function MasterForm<S extends z.ZodTypeAny>({
       // Remove client-only virtual fields that don't exist in the database table
       delete payload.opening_stock;
       
+      // Convert empty strings to null for fields that might have unique constraints
+      // In Postgres, NULL != NULL so multiple rows can have NULL, but "" == "" which causes constraint violations
+      if (payload.pan === "") payload.pan = null;
+      if (payload.vat_number === "") payload.vat_number = null;
+      if (payload.email === "") payload.email = null;
+      if (payload.phone === "") payload.phone = null;
+      
       // If creating new item, set current qty to opening_qty
       if (!initial?.id && table === "items") {
         payload.qty = Number(payload.opening_qty || 0);
