@@ -271,11 +271,9 @@ export function useDataGraph() {
 
       // 👥 Expand Customer Group → show all customers
       if (table === "customer-group") {
-        const companyId = rowId;
         const { data: customers } = await supabase
           .from("customers")
           .select("*")
-          .eq("company_id", companyId)
           .order("name", { ascending: true })
           .limit(20);
 
@@ -288,11 +286,9 @@ export function useDataGraph() {
 
       // 🏭 Expand Vendor Group → show all vendors
       if (table === "vendor-group") {
-        const companyId = rowId;
         const { data: vendors } = await supabase
           .from("vendors")
           .select("*")
-          .eq("company_id", companyId)
           .order("name", { ascending: true })
           .limit(20);
 
@@ -478,9 +474,11 @@ export function useDataGraph() {
 
         // 🏬 Expand Warehouse
         if (table === "warehouses") {
-          const [ragsRes, transfersRes] = await Promise.all([
+          const [ragsRes, transfersRes, stockLedgerRes, dcLinesRes] = await Promise.all([
             supabase.from("warehouse_rags").select("*").eq("warehouse_id", rowId),
             supabase.from("stock_transfers").select("*").or(`from_warehouse_id.eq.${rowId},to_warehouse_id.eq.${rowId}`).limit(RELATION_LIMIT),
+            supabase.from("stock_ledger").select("item_id, quantity, items(*)").eq("warehouse_id", rowId).limit(20),
+            supabase.from("delivery_challan_lines").select("challan_id, quantity, delivery_challans(*, customers(*))").eq("warehouse_id", rowId).limit(20)
           ]);
 
           (ragsRes.data || []).forEach((rag) => {
@@ -504,6 +502,53 @@ export function useDataGraph() {
               label: st.from_warehouse_id === rowId ? "transferred out" : "transferred in",
               animated: true,
             });
+          });
+
+          // Show running items connected to this warehouse
+          const seenItems = new Set<string>();
+          (stockLedgerRes.data || []).forEach((entry: any) => {
+            if (entry.items && !seenItems.has(entry.item_id)) {
+              seenItems.add(entry.item_id);
+              const n = makeNode("items", entry.items);
+              newNodes.push(n);
+              newEdges.push({
+                id: `${nodeId}-${n.id}`,
+                source: nodeId,
+                target: n.id,
+                label: "running item",
+                animated: true,
+              });
+            }
+          });
+
+          // Show delivery challans and their customers connected to this warehouse
+          const seenChallans = new Set<string>();
+          const seenCustomers = new Set<string>();
+          (dcLinesRes.data || []).forEach((line: any) => {
+            const dc = line.delivery_challans;
+            if (dc && !seenChallans.has(dc.id)) {
+              seenChallans.add(dc.id);
+              const dcNode = makeNode("delivery_challans", dc);
+              newNodes.push(dcNode);
+              newEdges.push({
+                id: `${nodeId}-${dcNode.id}`,
+                source: nodeId,
+                target: dcNode.id,
+                label: "dispatched via",
+              });
+
+              if (dc.customers && !seenCustomers.has(dc.customers.id)) {
+                seenCustomers.add(dc.customers.id);
+                const custNode = makeNode("customers", dc.customers);
+                newNodes.push(custNode);
+                newEdges.push({
+                  id: `${dcNode.id}-${custNode.id}`,
+                  source: dcNode.id,
+                  target: custNode.id,
+                  label: "delivered to",
+                });
+              }
+            }
           });
         }
 
@@ -944,10 +989,10 @@ export function useDataGraph() {
 
         const [billsRes, custRes, itemsRes, invRes, vendorRes] = await Promise.all([
           supabase.from("bills").select("*").eq("company_id", company.id).ilike("bill_number", q).limit(5),
-          supabase.from("customers").select("*").eq("company_id", company.id).ilike("name", q).limit(5),
+          supabase.from("customers").select("*").ilike("name", q).limit(5),
           supabase.from("items").select("*").eq("company_id", company.id).ilike("item_name", q).limit(5),
           supabase.from("sales_invoices" as any).select("*").eq("company_id", company.id).ilike("invoice_number", q).limit(5),
-          supabase.from("vendors").select("*").eq("company_id", company.id).ilike("name", q).limit(5),
+          supabase.from("vendors").select("*").ilike("name", q).limit(5),
         ]);
 
         (billsRes.data || []).forEach((b) => newNodes.push(makeNode("bills", b)));
