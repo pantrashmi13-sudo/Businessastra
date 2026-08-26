@@ -3,36 +3,48 @@
 -- 1. Add is_main column
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS is_main BOOLEAN NOT NULL DEFAULT false;
 
--- 2. Cleanup duplicate warehouses: keep only the oldest "Main Warehouse" per company
+-- 2. Delete duplicate warehouses per company: keep only the oldest row with the same (company_id, LOWER(name))
 DELETE FROM warehouses
 WHERE id IN (
   SELECT w1.id
   FROM warehouses w1
   INNER JOIN warehouses w2
     ON w1.company_id = w2.company_id
-    AND LOWER(w1.name) = LOWER(w2.name)
+    AND LOWER(TRIM(w1.name)) = LOWER(TRIM(w2.name))
     AND w1.created_at > w2.created_at
-  WHERE LOWER(w1.name) = 'main warehouse'
 );
 
--- 3. Mark surviving Main Warehouse as is_main
+-- 3. Mark one warehouse per company as is_main (prefer name containing 'main', else oldest)
 UPDATE warehouses SET is_main = true
-WHERE LOWER(name) = 'main warehouse'
-  AND id IN (
-    SELECT DISTINCT ON (company_id) id
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id,
+      ROW_NUMBER() OVER (
+        PARTITION BY company_id
+        ORDER BY
+          CASE WHEN LOWER(name) LIKE '%main%' THEN 0 ELSE 1 END,
+          created_at ASC
+      ) AS rn
     FROM warehouses
-    WHERE LOWER(name) = 'main warehouse'
-    ORDER BY company_id, created_at ASC
-  );
+  ) sub
+  WHERE rn = 1
+);
 
--- 4. Ensure only one is_main per company
+-- 4. Ensure at most one is_main per company
 UPDATE warehouses SET is_main = false
 WHERE id IN (
   SELECT w1.id
   FROM warehouses w1
-  INNER JOIN warehouses w2
-    ON w1.company_id = w2.company_id
-    AND w2.is_main = true
-    AND w1.id != w2.id
+  INNER JOIN (
+    SELECT DISTINCT ON (company_id) id
+    FROM warehouses
+    WHERE is_main = true
+    ORDER BY company_id, created_at ASC
+  ) keep ON w1.id != keep.id
   WHERE w1.is_main = true
 );
+
+-- 5. Verify result
+SELECT company_id, name, is_main, id
+FROM warehouses
+ORDER BY company_id, created_at;

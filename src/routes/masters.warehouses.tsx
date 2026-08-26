@@ -273,28 +273,18 @@ function WarehousesPage() {
         throw new Error(`A warehouse with the name "${form.name.trim()}" already exists`);
       }
 
-      // If marking as main, unset is_main on all other warehouses first
-      if (form.is_main) {
-        const { error: unsetErr } = await supabase
-          .from("warehouses")
-          .update({ is_main: false })
-          .eq("company_id", companyId)
-          .neq("id", editing?.id ?? "00000000-0000-0000-0000-000000000000");
-        if (unsetErr) throw unsetErr;
-      }
-
       const payload = {
         name: form.name.trim(),
         location: form.location.trim() || null,
         incharge_person: form.incharge_person.trim() || null,
         company_id: companyId,
-        is_main: form.is_main,
+        // is_main is system-managed (set during company creation) — never changed via this form
       };
       if (editing?.id) {
         const { error } = await supabase.from("warehouses").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("warehouses").insert(payload);
+        const { error } = await supabase.from("warehouses").insert({ ...payload, is_main: false });
         if (error) throw error;
       }
     },

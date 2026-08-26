@@ -132,7 +132,7 @@ const emptyLine = (sno: number, billType?: string): Line => ({
       ? ""
       : `LOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
   expiry_date: "",
-  warehouse: "Main Warehouse",
+  warehouse: "Warehouse-1",
 });
 
 export function BillForm({
@@ -265,6 +265,12 @@ export function BillForm({
   const [masterFormOpen, setMasterFormOpen] = useState(false);
   const [masterFormLineIndex, setMasterFormLineIndex] = useState<number | null>(null);
 
+  // Quick Warehouse creation state during approval
+  const [showQuickWarehouseDialog, setShowQuickWarehouseDialog] = useState(false);
+  const [quickWarehouseName, setQuickWarehouseName] = useState("");
+  const [quickWarehouseLocation, setQuickWarehouseLocation] = useState("");
+  const [quickWarehouseTargetLineIndex, setQuickWarehouseTargetLineIndex] = useState<number | null>(null);
+
   // Auto-suggest internal bill number for new bills
   useEffect(() => {
     if (!isNew) return;
@@ -340,7 +346,9 @@ export function BillForm({
   });
 
   const mainWarehouse = useMemo(() => {
-    return (warehouses.data ?? []).find((w: any) => w.name === "Main Warehouse");
+    return (warehouses.data ?? []).find(
+      (w: any) => w.is_main || w.name === "Warehouse-1" || w.name === "Main Warehouse"
+    );
   }, [warehouses.data]);
 
   const warehouseRags = useQuery({
@@ -704,6 +712,14 @@ export function BillForm({
       if (!vendorId) {
         throw new Error("Vendor name is required. Please select or add a vendor before saving.");
       }
+      if (!billNumber?.trim()) {
+        throw new Error(
+          "Invoice number is required. Please enter the invoice number before saving.",
+        );
+      }
+      if (!invoiceDate) {
+        throw new Error("Invoice date is required. Please select the invoice date before saving.");
+      }
       const validLines = lines.filter((l) => l.name.trim());
       if (validLines.length === 0) {
         throw new Error(
@@ -1019,14 +1035,18 @@ export function BillForm({
               const updatePayload: any = { qty: newQty };
               if (billTypeRef.current === "other_items") updatePayload.is_inventory = false;
               if (line.code && !item[codeField]) updatePayload[codeField] = line.code;
-              const resolvedWarehouseId = (vars.warehouseMap && vars.warehouseMap[line._originalIdx]) || mainWarehouse?.id;
+              const resolvedWarehouseId =
+                (vars.warehouseMap && vars.warehouseMap[line._originalIdx]) || mainWarehouse?.id;
               if (resolvedWarehouseId && !isFixedAssets) {
                 updatePayload.warehouse = resolvedWarehouseId;
                 updatePayload.warehouse_id = resolvedWarehouseId;
               }
-              const resolvedRagId = vars.ragMap && vars.ragMap[line._originalIdx] && vars.ragMap[line._originalIdx] !== "__no_rag__"
-                ? vars.ragMap[line._originalIdx]
-                : null;
+              const resolvedRagId =
+                vars.ragMap &&
+                vars.ragMap[line._originalIdx] &&
+                vars.ragMap[line._originalIdx] !== "__no_rag__"
+                  ? vars.ragMap[line._originalIdx]
+                  : null;
               if (resolvedRagId) {
                 updatePayload.rag_id = resolvedRagId;
               }
@@ -1090,7 +1110,8 @@ export function BillForm({
                 .eq("id", existing.id);
               updated++;
             } else {
-              const resolvedWarehouseId = (vars.warehouseMap && vars.warehouseMap[line._originalIdx]) || mainWarehouse?.id;
+              const resolvedWarehouseId =
+                (vars.warehouseMap && vars.warehouseMap[line._originalIdx]) || mainWarehouse?.id;
               const payload: Record<string, unknown> = {
                 [codeField]: autoCode,
                 [nameField]: line.name.trim(),
@@ -1478,6 +1499,14 @@ export function BillForm({
                       toast.error("Please select a vendor before continuing.");
                       return;
                     }
+                    if (!billNumber?.trim()) {
+                      toast.error("Invoice number is required. Please enter the invoice number.");
+                      return;
+                    }
+                    if (!invoiceDate) {
+                      toast.error("Invoice date is required. Please select the invoice date.");
+                      return;
+                    }
                     setFormSegment(2);
                   }}
                 >
@@ -1576,7 +1605,7 @@ export function BillForm({
                                     vat_rate: Number(row.vat_rate) || l.vat_rate,
                                     lot_number: (row.lot_number as string) || l.lot_number,
                                     expiry_date: (row.expiry_date as string) || l.expiry_date,
-                                    warehouse: (row.warehouse as string) || "Main Warehouse",
+                                    warehouse: (row.warehouse as string) || mainWarehouse?.name || "Warehouse-1",
                                   });
                                 } else {
                                   updateLine(i, { ref_id: null });
@@ -1600,7 +1629,7 @@ export function BillForm({
                             {billType === "items" && (
                               <div className="mt-1 flex items-center">
                                 <span className="h-6 w-[120px] text-[10px] bg-transparent text-blue-600 font-mono px-1 flex items-center">
-                                  {l.warehouse || "Main Warehouse"}
+                                  {l.warehouse || mainWarehouse?.name || "Warehouse-1"}
                                 </span>
                               </div>
                             )}
@@ -2100,63 +2129,89 @@ export function BillForm({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {!isMatched && billType === "items" && (
-                            <>
+                        {!isMatched && billType === "items" && (
+                            <div className="flex items-center gap-1.5">
                               {/* Warehouse selector — defaults to Main Warehouse */}
                               <Select
-                                value={linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id || ""}
+                                value={
+                                  linesWarehouseMap[idx] ||
+                                  lines[idx].warehouse_id ||
+                                  mainWarehouse?.id ||
+                                  ""
+                                }
                                 onValueChange={(v) => {
                                   setLinesWarehouseMap((prev) => ({ ...prev, [idx]: v }));
                                   setLinesRagMap((prev) => ({ ...prev, [idx]: "" }));
                                 }}
                               >
-                                <SelectTrigger className="h-7 w-[130px] text-[10px]">
+                                <SelectTrigger className="h-8 w-[140px] text-xs font-normal">
                                   <SelectValue placeholder="Warehouse..." />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {(warehouses.data ?? []).map((wh: any) => (
-                                    <SelectItem key={wh.id} value={wh.id} className="text-[11px]">
+                                    <SelectItem key={wh.id} value={wh.id} className="text-xs">
                                       {wh.name}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
 
+                              {/* Quick add warehouse button */}
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8 shrink-0"
+                                title="Add new warehouse"
+                                onClick={() => {
+                                  setQuickWarehouseTargetLineIndex(idx);
+                                  setShowQuickWarehouseDialog(true);
+                                }}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </Button>
+
                               {/* RAG selector — always visible when warehouse is determined */}
                               <Select
                                 value={linesRagMap[idx] || "__no_rag__"}
                                 onValueChange={(v) =>
-                                  setLinesRagMap((prev) => ({ ...prev, [idx]: v === "__no_rag__" ? "" : v }))
+                                  setLinesRagMap((prev) => ({
+                                    ...prev,
+                                    [idx]: v === "__no_rag__" ? "" : v,
+                                  }))
                                 }
                               >
-                                <SelectTrigger className="h-7 w-[120px] text-[10px]">
+                                <SelectTrigger className="h-8 w-[120px] text-xs font-normal">
                                   <SelectValue placeholder="No RAG" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="__no_rag__" className="text-[11px]">No RAG</SelectItem>
+                                  <SelectItem value="__no_rag__" className="text-xs">
+                                    No RAG
+                                  </SelectItem>
                                   {(warehouseRags.data ?? [])
                                     .filter(
                                       (r: any) =>
                                         r.warehouse_id ===
-                                        (linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id),
+                                        (linesWarehouseMap[idx] ||
+                                          lines[idx].warehouse_id ||
+                                          mainWarehouse?.id),
                                     )
                                     .map((rag: any) => (
                                       <SelectItem
                                         key={rag.id}
                                         value={rag.id}
-                                        className="text-[11px]"
+                                        className="text-xs"
                                       >
                                         {rag.code ? `${rag.code} - ${rag.name}` : rag.name}
                                       </SelectItem>
                                     ))}
                                 </SelectContent>
                               </Select>
-                            </>
+                            </div>
                           )}
                           {isMatched && billType === "items" && (
                             <span className="text-[10px] text-muted-foreground dark:text-zinc-400">
-                              {lines[idx].warehouse || "Main Warehouse"}
+                              {lines[idx].warehouse || mainWarehouse?.name || "Warehouse-1"}
                               {lines[idx].rag_id ? ` · RAG` : ""}
                             </span>
                           )}
@@ -2251,7 +2306,7 @@ export function BillForm({
                   hsn_code: "",
                   vat_rate: lines[masterFormLineIndex]?.vat_rate || 5,
                   per_unit: lines[masterFormLineIndex]?.per_unit || 0,
-                  warehouse: lines[masterFormLineIndex]?.warehouse || "Main Warehouse",
+                  warehouse: lines[masterFormLineIndex]?.warehouse || mainWarehouse?.name || "Warehouse-1",
                 }
               : undefined
           }
@@ -2271,6 +2326,78 @@ export function BillForm({
           }}
         />
       )}
+
+      {/* ── Quick Warehouse Creation Dialog ─────────────────────── */}
+      <Dialog open={showQuickWarehouseDialog} onOpenChange={(v) => {
+        setShowQuickWarehouseDialog(v);
+        if (!v) { setQuickWarehouseName(""); setQuickWarehouseLocation(""); }
+      }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add New Warehouse</DialogTitle>
+            <DialogDescription>Create a new warehouse and assign it to this bill line.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Warehouse Name *</Label>
+              <Input
+                placeholder="e.g. Warehouse-2"
+                value={quickWarehouseName}
+                onChange={(e) => setQuickWarehouseName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Location</Label>
+              <Input
+                placeholder="e.g. Ground floor, Block B"
+                value={quickWarehouseLocation}
+                onChange={(e) => setQuickWarehouseLocation(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setShowQuickWarehouseDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={!quickWarehouseName.trim()}
+              onClick={async () => {
+                if (!quickWarehouseName.trim() || !activeCompany?.id) return;
+                const { data: newWh, error } = await supabase
+                  .from("warehouses")
+                  .insert({
+                    company_id: activeCompany.id,
+                    name: quickWarehouseName.trim(),
+                    location: quickWarehouseLocation.trim() || null,
+                    is_main: false,
+                  })
+                  .select()
+                  .single();
+                if (error) {
+                  toast.error(error.message);
+                  return;
+                }
+                // Refresh warehouses list
+                qc.invalidateQueries({ queryKey: ["warehouses"] });
+                // Auto-select the new warehouse for the target line
+                if (quickWarehouseTargetLineIndex !== null && newWh) {
+                  setLinesWarehouseMap((prev) => ({ ...prev, [quickWarehouseTargetLineIndex]: newWh.id }));
+                  setLinesRagMap((prev) => ({ ...prev, [quickWarehouseTargetLineIndex]: "" }));
+                }
+                toast.success(`Warehouse "${newWh.name}" created`);
+                setShowQuickWarehouseDialog(false);
+                setQuickWarehouseName("");
+                setQuickWarehouseLocation("");
+              }}
+            >
+              Create & Select
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </>
   );
 }
