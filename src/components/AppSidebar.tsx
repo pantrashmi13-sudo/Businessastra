@@ -193,8 +193,12 @@ export function AppSidebar() {
         collapsible="icon"
         onMouseEnter={handleMouseEnter}
       >
-        <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
-          <Link to="/" className="flex items-center gap-3 text-sidebar-foreground" onClick={handleNavSelect}>
+        <SidebarHeader className="border-b border-sidebar-border px-4 py-3 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:items-center">
+          <Link 
+            to="/" 
+            className="flex items-center gap-3 text-sidebar-foreground group-data-[collapsible=icon]:justify-center" 
+            onClick={handleNavSelect}
+          >
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white p-1 shadow-sm">
               <img
                 src="/bizastra-logo.png"
@@ -226,28 +230,18 @@ export function AppSidebar() {
                   asChild
                 >
                   <SidebarMenuItem>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <CollapsibleTrigger asChild>
-                          <SidebarMenuButton 
-                            className="w-full font-medium" 
-                            isActive={hasActiveChild && !isExpanded}
-                            onClick={() => handleSectionClick(section.title)}
-                          >
-                            <Icon />
-                            <span>{section.title}</span>
-                            <ChevronRight 
-                              className={`ml-auto transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`} 
-                            />
-                          </SidebarMenuButton>
-                        </CollapsibleTrigger>
-                      </TooltipTrigger>
-                      {collapsed && (
-                        <TooltipContent side="right" className="text-xs font-medium">
-                          {section.title}
-                        </TooltipContent>
-                      )}
-                    </Tooltip>
+                    <SidebarMenuButton 
+                      tooltip={section.title}
+                      className="w-full font-medium" 
+                      isActive={hasActiveChild && !isExpanded}
+                      onClick={() => handleSectionClick(section.title)}
+                    >
+                      <Icon />
+                      <span>{section.title}</span>
+                      <ChevronRight 
+                        className={`ml-auto transition-transform duration-200 group-data-[collapsible=icon]:hidden ${isExpanded ? "rotate-90" : ""}`} 
+                      />
+                    </SidebarMenuButton>
                     
                     <CollapsibleContent>
                       <SidebarMenuSub className="mr-0 pr-0">
