@@ -116,6 +116,18 @@ export function DataKnowledgeGraph() {
     return m;
   }, [layout]);
 
+  // When a node is selected, compute focused set: selected node + all direct neighbors
+  const focusedNodeIds = useMemo<Set<string> | null>(() => {
+    if (!selectedNode) return null; // null = no focus filter (all visible)
+    const focused = new Set<string>();
+    focused.add(selectedNode);
+    edges.forEach((e) => {
+      if (e.source === selectedNode) focused.add(e.target);
+      if (e.target === selectedNode) focused.add(e.source);
+    });
+    return focused;
+  }, [selectedNode, edges]);
+
   useEffect(() => {
     initGraph();
   }, [initGraph]);
@@ -552,10 +564,15 @@ export function DataKnowledgeGraph() {
                     const mid = getEdgeMidpoint(source, target);
                     const isAnimated = edge.animated;
                     const hasAmount = edge.amount !== undefined && edge.amount > 0;
+                    const isEdgeFocused = !focusedNodeIds || (focusedNodeIds.has(edge.source) && focusedNodeIds.has(edge.target));
                     const isSelected = selectedNode === edge.source || selectedNode === edge.target;
 
                     return (
-                      <g key={edge.id} className="group">
+                      <g
+                        key={edge.id}
+                        className="group"
+                        style={{ opacity: isEdgeFocused ? 1 : 0.08, transition: "opacity 0.25s ease" }}
+                      >
                         <path
                           d={path}
                           fill="none"
@@ -565,7 +582,7 @@ export function DataKnowledgeGraph() {
                           markerEnd={isAnimated ? "url(#data-arrow-green)" : "url(#data-arrow)"}
                         />
 
-                        {zoom > 0.45 && (
+                        {zoom > 0.45 && isEdgeFocused && (
                           <g transform={`translate(${mid.x}, ${mid.y})`}>
                             <rect
                               x={-36}
@@ -602,12 +619,18 @@ export function DataKnowledgeGraph() {
                     const isHovered = hoveredNode === node.id;
                     const baseColor = NODE_COLORS[node.type] || "#6366f1";
                     const ringColor = node.status ? STATUS_BORDER_COLORS[node.status] : baseColor;
+                    const isNodeFocused = !focusedNodeIds || focusedNodeIds.has(node.id);
 
                     return (
                       <g
                         key={node.id}
                         transform={`translate(${node.x}, ${node.y})`}
                         className="cursor-pointer"
+                        style={{
+                          opacity: isNodeFocused ? 1 : 0.1,
+                          transition: "opacity 0.25s ease",
+                          filter: isSelected ? "drop-shadow(0 0 8px #6366f1aa)" : isNodeFocused ? undefined : "grayscale(1)",
+                        }}
                         onClick={(e) => handleNodeClick(node.id, e)}
                         onDoubleClick={(e) => handleNodeDoubleClick(node.id, e)}
                         onMouseDown={(e) => handleNodeMouseDown(node.id, e)}
