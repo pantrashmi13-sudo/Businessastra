@@ -361,45 +361,77 @@ export function useDataGraph() {
 
       // 👤 Expand Customer
       if (table === "customers") {
-        const [invoicesRes, challansRes, receiptsRes] = await Promise.all([
-          supabase.from("sales_invoices" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-          supabase.from("delivery_challans" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-          supabase.from("receipt_vouchers" as any).select("*").eq("customer_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-        ]);
+        const groupDefs = [
+          { table: "customer_invoices-group", id: `customer_invoices-group:${rowId}`, name: "Sales Invoices", link: "invoices" },
+          { table: "customer_receipts-group", id: `customer_receipts-group:${rowId}`, name: "Receipts & Payments", link: "payments" },
+          { table: "customer_challans-group", id: `customer_challans-group:${rowId}`, name: "Delivery Challans", link: "deliveries" }
+        ];
 
-        (invoicesRes.data || []).forEach((inv: any) => {
+        groupDefs.forEach(({ table: gt, id: gid, name, link }) => {
+          newNodes.push(makeNode(gt, { id: rowId, name }));
+          newEdges.push({ id: `${nodeId}-${gid}`, source: nodeId, target: gid, label: link });
+        });
+      }
+
+      // Expand Customer Sub-Groups
+      if (table === "customer_invoices-group") {
+        const customerId = rowId;
+        const { data: invoices } = await supabase.from("sales_invoices" as any).select("*").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(RELATION_LIMIT);
+        (invoices || []).forEach((inv: any) => {
           const n = makeNode("sales_invoices", inv);
           newNodes.push(n);
           newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "invoiced", amount: Number(inv.total_amount ?? 0), date: inv.invoice_date, animated: true });
         });
+      }
 
-        (challansRes.data || []).forEach((ch: any) => {
-          const n = makeNode("delivery_challans", ch);
-          newNodes.push(n);
-          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "dispatched" });
-        });
-
-        (receiptsRes.data || []).forEach((rc: any) => {
+      if (table === "customer_receipts-group") {
+        const customerId = rowId;
+        const { data: receipts } = await supabase.from("receipt_vouchers" as any).select("*").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(RELATION_LIMIT);
+        (receipts || []).forEach((rc: any) => {
           const n = makeNode("receipt_vouchers", rc);
           newNodes.push(n);
           newEdges.push({ id: `${n.id}-${nodeId}`, source: n.id, target: nodeId, label: "payment received", amount: Number(rc.total_amount ?? 0), animated: true });
         });
       }
 
-      // 🏭 Expand Vendor → show bills and payments
-      if (table === "vendors") {
-        const [billsRes, paymentsRes] = await Promise.all([
-          supabase.from("bills").select("*").eq("vendor_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-          supabase.from("payment_vouchers" as any).select("*").eq("vendor_id", rowId).order("created_at", { ascending: false }).limit(RELATION_LIMIT),
-        ]);
+      if (table === "customer_challans-group") {
+        const customerId = rowId;
+        const { data: challans } = await supabase.from("delivery_challans" as any).select("*").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(RELATION_LIMIT);
+        (challans || []).forEach((ch: any) => {
+          const n = makeNode("delivery_challans", ch);
+          newNodes.push(n);
+          newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "dispatched" });
+        });
+      }
 
-        (billsRes.data || []).forEach((b) => {
+      // 🏭 Expand Vendor
+      if (table === "vendors") {
+        const groupDefs = [
+          { table: "vendor_bills-group", id: `vendor_bills-group:${rowId}`, name: "Purchase Bills", link: "bills" },
+          { table: "vendor_payments-group", id: `vendor_payments-group:${rowId}`, name: "Payments Issued", link: "payments" }
+        ];
+
+        groupDefs.forEach(({ table: gt, id: gid, name, link }) => {
+          newNodes.push(makeNode(gt, { id: rowId, name }));
+          newEdges.push({ id: `${nodeId}-${gid}`, source: nodeId, target: gid, label: link });
+        });
+      }
+
+      // Expand Vendor Sub-Groups
+      if (table === "vendor_bills-group") {
+        const vendorId = rowId;
+        const { data: bills } = await supabase.from("bills").select("*").eq("vendor_id", vendorId).order("created_at", { ascending: false }).limit(RELATION_LIMIT);
+        (bills || []).forEach((b) => {
           const n = makeNode("bills", b);
           newNodes.push(n);
           newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "billed", amount: Number(b.final_amount ?? 0), date: b.invoice_date || undefined });
         });
+      }
 
-        (paymentsRes.data || []).forEach((p: any) => {
+      if (table === "vendor_payments-group") {
+        const vendorId = rowId;
+        const { data: payments } = await supabase.from("payment_vouchers" as any).select("*").eq("vendor_id", vendorId).order("created_at", { ascending: false }).limit(RELATION_LIMIT);
+        (payments || []).forEach((p: any) => {
           const n = makeNode("payment_vouchers", p);
           newNodes.push(n);
           newEdges.push({ id: `${nodeId}-${n.id}`, source: nodeId, target: n.id, label: "paid out", amount: Number(p.total_amount ?? 0), animated: true });
@@ -408,10 +440,10 @@ export function useDataGraph() {
 
         // 🧾 Expand Purchase Bill
         if (table === "bills") {
-          const { data: lines } = await supabase
-            .from("bill_lines")
-            .select("*, items(*)")
-            .eq("bill_id", rowId);
+          const [{ data: lines }, { data: allocs }] = await Promise.all([
+            supabase.from("bill_lines").select("*, items(*)").eq("bill_id", rowId),
+            supabase.from("payment_voucher_bills").select("*, payment_vouchers(*)").eq("bill_id", rowId)
+          ]);
 
           if (lines) {
             lines.forEach((line) => {
@@ -437,14 +469,45 @@ export function useDataGraph() {
               }
             });
           }
+
+          let totalPaid = 0;
+          if (allocs) {
+            allocs.forEach((alloc: any) => {
+              if (alloc.payment_vouchers) {
+                totalPaid += Number(alloc.allocated_amount || 0);
+                const pvNode = makeNode("payment_vouchers", alloc.payment_vouchers);
+                newNodes.push(pvNode);
+                newEdges.push({
+                  id: `${nodeId}-${pvNode.id}`,
+                  source: nodeId,
+                  target: pvNode.id,
+                  label: "paid via",
+                  amount: alloc.allocated_amount,
+                  animated: true,
+                });
+              }
+            });
+          }
+          
+          // Try to update bill node to show closing balance
+          setNodes((prevNodes) => {
+            const nextNodes = new Map(prevNodes);
+            const existingNode = nextNodes.get(nodeId);
+            if (existingNode && existingNode.data) {
+              const finalAmt = Number(existingNode.data.final_amount || 0);
+              const balance = finalAmt - totalPaid;
+              existingNode.subLabel = `Paid: ${totalPaid.toLocaleString()} | Bal: ${balance.toLocaleString()}`;
+            }
+            return nextNodes;
+          });
         }
 
         // 📑 Expand Sales Invoice
         if (table === "sales_invoices") {
-          const { data: lines } = await supabase
-            .from("sales_invoice_lines" as any)
-            .select("*, items(*)")
-            .eq("invoice_id", rowId);
+          const [{ data: lines }, { data: allocs }] = await Promise.all([
+            supabase.from("sales_invoice_lines" as any).select("*, items(*)").eq("invoice_id", rowId),
+            supabase.from("receipt_voucher_invoices").select("*, receipt_vouchers(*)").eq("invoice_id", rowId)
+          ]);
 
           if (lines) {
             (lines as any[]).forEach((line) => {
@@ -470,6 +533,37 @@ export function useDataGraph() {
               }
             });
           }
+
+          let totalReceived = 0;
+          if (allocs) {
+            allocs.forEach((alloc: any) => {
+              if (alloc.receipt_vouchers) {
+                totalReceived += Number(alloc.allocated_amount || 0);
+                const rvNode = makeNode("receipt_vouchers", alloc.receipt_vouchers);
+                newNodes.push(rvNode);
+                newEdges.push({
+                  id: `${rvNode.id}-${nodeId}`,
+                  source: rvNode.id,
+                  target: nodeId,
+                  label: "received via",
+                  amount: alloc.allocated_amount,
+                  animated: true,
+                });
+              }
+            });
+          }
+
+          // Try to update invoice node to show closing balance
+          setNodes((prevNodes) => {
+            const nextNodes = new Map(prevNodes);
+            const existingNode = nextNodes.get(nodeId);
+            if (existingNode && existingNode.data) {
+              const finalAmt = Number(existingNode.data.total_amount || 0);
+              const balance = finalAmt - totalReceived;
+              existingNode.subLabel = `Rec: ${totalReceived.toLocaleString()} | Bal: ${balance.toLocaleString()}`;
+            }
+            return nextNodes;
+          });
         }
 
         // 🏬 Expand Warehouse
