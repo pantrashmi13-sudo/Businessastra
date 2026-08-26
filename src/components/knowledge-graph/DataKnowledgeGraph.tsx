@@ -127,8 +127,20 @@ export function DataKnowledgeGraph() {
 
   const handleNodeClick = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
+
+    // If the mouse moved more than 5px since mousedown, treat it as a drag, not a click
+    if (dragStartPos.current && "clientX" in e) {
+      const dx = e.clientX - dragStartPos.current.x;
+      const dy = e.clientY - dragStartPos.current.y;
+      if (Math.sqrt(dx * dx + dy * dy) > 5) {
+        dragStartPos.current = null;
+        return;
+      }
+    }
+    dragStartPos.current = null;
+
     const node = nodes.find((n) => n.id === id);
-    
+
     // Toggle selection
     if (selectedNode === id) {
       setSelectedNode(null);
@@ -136,7 +148,7 @@ export function DataKnowledgeGraph() {
       setSelectedNode(id);
     }
 
-    // Toggle expansion (Group nodes expand on single click)
+    // Toggle expansion: Group nodes expand/collapse on single click
     if (node?.isGroup) {
       if (expandedNodes.has(id)) {
         collapseNode(id);
@@ -158,9 +170,13 @@ export function DataKnowledgeGraph() {
     }
   };
 
+  // Track mousedown position to distinguish a click from a drag
+  const dragStartPos = useRef<{ x: number; y: number } | null>(null);
+
   // Node Drag Handlers
   const handleNodeMouseDown = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    dragStartPos.current = { x: e.clientX, y: e.clientY };
     setDraggedNodeId(id);
   };
 
@@ -615,8 +631,8 @@ export function DataKnowledgeGraph() {
                         <circle
                           r={NODE_RADIUS}
                           fill="#ffffff"
-                          stroke={isSelected ? "#6366f1" : ringColor}
-                          strokeWidth={isSelected ? 3 : 2}
+                          stroke={node.isGroup ? (expandedNodes.has(node.id) ? "#6366f1" : baseColor) : (isSelected ? "#6366f1" : ringColor)}
+                          strokeWidth={node.isGroup ? 2.5 : (isSelected ? 3 : 2)}
                           className="transition-all duration-200"
                         />
 
@@ -658,6 +674,23 @@ export function DataKnowledgeGraph() {
                             </text>
                           )}
                         </g>
+
+                        {/* Expand/Collapse badge on group nodes */}
+                        {node.isGroup && (
+                          <g transform={`translate(${NODE_RADIUS - 4}, ${-NODE_RADIUS + 4})`}>
+                            <circle r={8} fill={expandedNodes.has(node.id) ? "#6366f1" : "#e2e8f0"} stroke="white" strokeWidth={1.5} />
+                            <text
+                              textAnchor="middle"
+                              dy="3.5"
+                              fill={expandedNodes.has(node.id) ? "white" : "#475569"}
+                              fontSize={11}
+                              fontWeight={700}
+                              className="pointer-events-none select-none"
+                            >
+                              {expandedNodes.has(node.id) ? "−" : "+"}
+                            </text>
+                          </g>
+                        )}
                       </g>
                     );
                   })}
