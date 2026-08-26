@@ -819,7 +819,7 @@ export function useDataGraph() {
         // Calculate overdue based on customer's payment_terms_days
         const customer = inv.customers;
         const invoiceDate = inv.invoice_date ? new Date(inv.invoice_date) : null;
-        const paymentDays = customer?.payment_terms_days ?? 30;
+        const paymentDays = customer?.payment_terms_days ?? 0;
         const dueDate = invoiceDate ? new Date(invoiceDate.getTime() + paymentDays * 86400000) : null;
         const isOverdue = dueDate ? dueDate < today : false;
 
