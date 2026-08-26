@@ -10,6 +10,8 @@ export interface CompanyRecord {
   pan: string | null;
   logo_url: string | null;
   date_format: DateFormat;
+  fy_start_year: number | null;
+  fy_start_date: string | null;
   address: string | null;
   state: string | null;
   city: string | null;
@@ -26,6 +28,8 @@ const defaultCompany: CompanyRecord = {
   pan: null,
   logo_url: null,
   date_format: "ad",
+  fy_start_year: null,
+  fy_start_date: null,
   address: null,
   state: null,
   city: null,
@@ -63,6 +67,8 @@ export function useCompany(): { company: CompanyRecord; isLoading: boolean } {
       pan: row.pan,
       logo_url: row.logo_url,
       date_format: (row.date_format as DateFormat) || "ad",
+      fy_start_year: row.fy_start_year ?? null,
+      fy_start_date: row.fy_start_date ?? null,
       address: row.address,
       state: row.state,
       city: row.city,

@@ -92,6 +92,20 @@ function VendorLedgerContent({
   vendorId: string;
   dateFormat: string;
 }) {
+  // Fetch vendor opening balance
+  const vendorQuery = useQuery({
+    queryKey: ["vendor-opening", vendorId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("vendors")
+        .select("opening_balance, opening_balance_type")
+        .eq("id", vendorId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const ledgers = useQuery({
     queryKey: ["ledgers", "vendor", vendorId],
     queryFn: async () => {
@@ -99,13 +113,13 @@ function VendorLedgerContent({
         .from("ledgers")
         .select("*, bills(bill_number, internal_bill_number)")
         .eq("vendor_id", vendorId)
-        .order("date", { ascending: false });
+        .order("date", { ascending: true });
       if (error) {
         const { data: fallback, error: fbErr } = await supabase
           .from("ledgers")
           .select("*")
           .eq("vendor_id", vendorId)
-          .order("date", { ascending: false });
+          .order("date", { ascending: true });
         if (fbErr) throw fbErr;
         return fallback ?? [];
       }
@@ -114,19 +128,39 @@ function VendorLedgerContent({
   });
 
   const rowsWithBalance = useMemo(() => {
-    const chronological = [...(ledgers.data ?? [])].reverse();
+    const rows: any[] = [];
+
+    // Prepend opening balance row
+    const ob = Number(vendorQuery.data?.opening_balance ?? 0);
+    const obType = vendorQuery.data?.opening_balance_type ?? "payable";
+    if (ob > 0) {
+      rows.push({
+        id: "opening-balance",
+        date: "0000-00-00",
+        description: "Opening Balance",
+        // payable = we owe vendor → debit side; receivable = vendor owes us → credit side
+        debit: obType === "payable" ? ob : 0,
+        credit: obType === "receivable" ? ob : 0,
+      });
+    }
+
+    (ledgers.data ?? []).forEach((r: any) => rows.push(r));
+
+    // Compute running balance chronologically
     let balance = 0;
-    const result = chronological.map((r: any) => {
+    const result = rows.map((r: any) => {
       balance += Number(r.debit ?? 0) - Number(r.credit ?? 0);
       return { ...r, balance };
     });
+
+    // Reverse for newest-first display
     return result.reverse();
-  }, [ledgers.data]);
+  }, [ledgers.data, vendorQuery.data]);
 
   const totalDebit = rowsWithBalance.reduce((s, r) => s + Number(r.debit ?? 0), 0);
   const totalCredit = rowsWithBalance.reduce((s, r) => s + Number(r.credit ?? 0), 0);
 
-  if (ledgers.isLoading) {
+  if (ledgers.isLoading || vendorQuery.isLoading) {
     return <div className="py-8 text-center text-muted-foreground">Loading…</div>;
   }
 
@@ -168,9 +202,12 @@ function VendorLedgerContent({
           </TableHeader>
           <TableBody>
             {rowsWithBalance.map((r: any) => (
-              <TableRow key={r.id} className="hover:bg-muted/30">
+              <TableRow
+                key={r.id}
+                className={r.id === "opening-balance" ? "bg-amber-50 font-semibold hover:bg-amber-100" : "hover:bg-muted/30"}
+              >
                 <TableCell className="text-muted-foreground font-mono text-xs py-2.5">
-                  {formatDate(r.date, dateFormat)}
+                  {r.id === "opening-balance" ? "Opening" : formatDate(r.date, dateFormat)}
                 </TableCell>
                 <TableCell className="py-2.5">{r.description || "—"}</TableCell>
                 <TableCell className="text-right tabular-nums font-mono py-2.5">

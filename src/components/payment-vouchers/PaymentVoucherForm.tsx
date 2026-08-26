@@ -240,6 +240,65 @@ export function PaymentVoucherForm({
     return options;
   }, [pettyCashQuery.data, bankAccountsQuery.data]);
 
+  // Fetch opening balance and compute running balance for selected vendor
+  const vendorBalanceQuery = useQuery({
+    queryKey: ["vendor-balance", vendorId],
+    queryFn: async () => {
+      if (!vendorId) return null;
+
+      // Fetch opening balance
+      const { data: vend } = await supabase
+        .from("vendors")
+        .select("opening_balance, opening_balance_type")
+        .eq("id", vendorId)
+        .single();
+
+      const ob = Number(vend?.opening_balance ?? 0);
+      const obType = vend?.opening_balance_type ?? "payable";
+
+      // Fetch all bills (credit = we owe vendor)
+      const { data: bills } = await supabase
+        .from("bills")
+        .select("final_amount")
+        .eq("vendor_id", vendorId)
+        .eq("status", "approved");
+
+      // Fetch all purchase returns (reduces what we owe vendor)
+      const { data: purchaseReturns } = await supabase
+        .from("purchase_returns" as any)
+        .select("total_amount")
+        .eq("vendor_id", vendorId);
+
+      // Fetch all payments (debit = we paid vendor)
+      const { data: payments } = await supabase
+        .from("payment_vouchers")
+        .select("total_amount")
+        .eq("vendor_id", vendorId);
+
+      const totalBilled = (bills ?? []).reduce((s: number, b: any) => s + Number(b.final_amount ?? 0), 0);
+      const totalReturns = (purchaseReturns ?? []).reduce((s: number, r: any) => s + Number(r.total_amount ?? 0), 0);
+      const totalPaid = (payments ?? []).reduce((s: number, p: any) => s + Number(p.total_amount ?? 0), 0);
+
+      const netPurchase = totalBilled - totalReturns;
+
+      // Opening balance: payable = credit side (positive outstanding we owe), receivable = debit side (vendor owes us)
+      const obCredit = obType === "payable" ? ob : 0;
+      const obDebit = obType === "receivable" ? ob : 0;
+
+      const runningBalance = (obCredit + netPurchase) - (obDebit + totalPaid);
+
+      return {
+        opening_balance: ob,
+        opening_balance_type: obType,
+        net_purchase: netPurchase,
+        total_returns: totalReturns,
+        total_paid: totalPaid,
+        running_balance: runningBalance,
+      };
+    },
+    enabled: payeeType === "vendor" && !!vendorId,
+  });
+
   // Fetch unpaid bills when vendor is selected and adjustment is bill-wise
   const unpaidBillsQuery = useQuery({
     queryKey: ["unpaid-bills", vendorId],
@@ -794,6 +853,36 @@ export function PaymentVoucherForm({
                   </div>
                 </RadioGroup>
               </div>
+
+              {/* Running Opening Balance */}
+              {vendorBalanceQuery.data && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">Opening Balance</p>
+                      <p className="font-semibold font-mono">{inr(vendorBalanceQuery.data.opening_balance)}</p>
+                      <p className="text-xs text-muted-foreground">{vendorBalanceQuery.data.opening_balance_type === "payable" ? "Payable" : "Receivable"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Net Purchase</p>
+                      <p className="font-semibold font-mono text-blue-700">{inr(vendorBalanceQuery.data.net_purchase)}</p>
+                      {vendorBalanceQuery.data.total_returns > 0 && (
+                        <p className="text-xs text-orange-600">Returns: -{inr(vendorBalanceQuery.data.total_returns)}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Total Paid</p>
+                      <p className="font-semibold font-mono text-emerald-700">{inr(vendorBalanceQuery.data.total_paid)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Running Balance</p>
+                      <p className={`font-bold font-mono ${vendorBalanceQuery.data.running_balance > 0 ? "text-destructive" : "text-emerald-700"}`}>
+                        {inr(vendorBalanceQuery.data.running_balance)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {adjustmentType === "bill_wise" && (
                 <div className="space-y-3">

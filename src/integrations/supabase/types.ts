@@ -220,6 +220,7 @@ export type Database = {
           email: string | null;
           id: string;
           name: string;
+          payment_terms_days: number | null;
           phone: string | null;
           pincode: string | null;
           state: string | null;
@@ -234,6 +235,7 @@ export type Database = {
           email?: string | null;
           id?: string;
           name: string;
+          payment_terms_days?: number | null;
           phone?: string | null;
           pincode?: string | null;
           state?: string | null;
@@ -248,6 +250,7 @@ export type Database = {
           email?: string | null;
           id?: string;
           name?: string;
+          payment_terms_days?: number | null;
           phone?: string | null;
           pincode?: string | null;
           state?: string | null;

@@ -48,6 +48,9 @@ export const customerSchema = z.object({
   city: opt,
   pincode: opt,
   billing_address: opt,
+  payment_terms_days: z.coerce.number().int().min(0).default(30),
+  opening_balance: z.coerce.number().min(0).default(0),
+  opening_balance_type: z.enum(["receivable", "payable"]).default("receivable"),
 });
 export const customerFields: FieldDef[] = [
   { key: "name", label: "Customer Name", colSpan: 2 },
@@ -59,6 +62,9 @@ export const customerFields: FieldDef[] = [
   { key: "city", label: "City" },
   { key: "pincode", label: "Pincode" },
   { key: "billing_address", label: "Billing Address", type: "textarea", colSpan: 2 },
+  { key: "payment_terms_days", label: "Payment Terms (Days)", type: "number", placeholder: "e.g. 30, 45, 60" },
+  { key: "opening_balance", label: "Opening Balance (NPR)", type: "number" },
+  { key: "opening_balance_type", label: "Balance Type", type: "select", options: ["receivable", "payable"], placeholder: "Receivable = customer owes you; Payable = you owe them" },
 ];
 
 export const vendorSchema = z.object({
@@ -73,6 +79,8 @@ export const vendorSchema = z.object({
   pincode: opt,
   address: opt,
   payment_terms: opt,
+  opening_balance: z.coerce.number().min(0).default(0),
+  opening_balance_type: z.enum(["payable", "receivable"]).default("payable"),
 });
 export const vendorFields: FieldDef[] = [
   { key: "name", label: "Vendor Name", colSpan: 2 },
@@ -86,6 +94,8 @@ export const vendorFields: FieldDef[] = [
   { key: "pincode", label: "Pincode" },
   { key: "payment_terms", label: "Payment Terms", placeholder: "Net 30" },
   { key: "address", label: "Address", type: "textarea", colSpan: 2 },
+  { key: "opening_balance", label: "Opening Balance (NPR)", type: "number" },
+  { key: "opening_balance_type", label: "Balance Type", type: "select", options: ["payable", "receivable"], placeholder: "Payable = you owe vendor; Receivable = vendor owes you" },
 ];
 
 export const itemSchema = z.object({

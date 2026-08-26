@@ -262,6 +262,17 @@ function WarehousesPage() {
       if (!form.name.trim()) throw new Error("Warehouse name is required");
       if (!companyId) throw new Error("No company selected");
 
+      // Check for duplicate warehouse name (excluding current if editing)
+      const { data: existing } = await supabase
+        .from("warehouses")
+        .select("id")
+        .eq("company_id", companyId)
+        .ilike("name", form.name.trim())
+        .neq("id", editing?.id ?? "00000000-0000-0000-0000-000000000000");
+      if (existing && existing.length > 0) {
+        throw new Error(`A warehouse with the name "${form.name.trim()}" already exists`);
+      }
+
       // If marking as main, unset is_main on all other warehouses first
       if (form.is_main) {
         const { error: unsetErr } = await supabase

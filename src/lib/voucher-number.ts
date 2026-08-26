@@ -3,21 +3,24 @@ import { supabase } from "@/integrations/supabase/client";
 /**
  * Generate the next voucher/document number based on financial year.
  *
- * Format: {PREFIX}-{FY_CODE}-{SEQ}
+ * Format: {PREFIX}-{FY_CODE}-{TYPE_CODE}-{SEQ}
  *   FY_CODE = last 2 digits of start year + last 2 digits of end year
  *   e.g. BS 2081-2082 → "8182", AD 2025-2026 → "2526"
+ *   TYPE_CODE = "P" for PAN invoices, "VAT" for VAT invoices, warehouse name for challans, "NA" if none
  *   SEQ = zero-padded 4-digit sequential number resetting each FY
  *
  * @param prefix  Document prefix: "SI", "DC", "RV", "PV"
  * @param table   Supabase table to query for last number
  * @param numberColumn  Column name storing the number (invoice_number / challan_number / voucher_number)
  * @param companyId  Active company ID
+ * @param typeCode  Optional type code: "P", "VAT", warehouse name, or omit for no type
  */
 export async function nextDocNumber(
   prefix: string,
   table: string,
   numberColumn: string,
   companyId: string,
+  typeCode?: string,
 ): Promise<string> {
   // Fetch company FY settings
   const { data: company } = await supabase
@@ -54,13 +57,15 @@ export async function nextDocNumber(
 
   const endYear = startYear + 1;
   const fyCode = `${String(startYear).slice(-2)}${String(endYear).slice(-2)}`;
-  const seqPrefix = `${prefix}-${fyCode}-`;
+  
+  // Sanitize typeCode: remove spaces, default to "NA" if empty
+  const sanitizedType = typeCode?.replace(/\s+/g, "") || "NA";
+  const seqPrefix = `${prefix}-${fyCode}-${sanitizedType}-`;
 
   // Find the last number in this FY
   const { data } = await supabase
     .from(table as any)
     .select(numberColumn)
-    .eq("company_id", companyId)
     .like(numberColumn, `${seqPrefix}%`)
     .order(numberColumn, { ascending: false })
     .limit(1);

@@ -281,6 +281,23 @@ export function MasterForm<S extends z.ZodTypeAny>({
         payload.qty = Number(payload.opening_qty || 0);
       }
 
+      // Check for duplicate PAN before save (vendors and customers tables have unique PAN constraints)
+      if ((table === "vendors" || table === "customers") && payload.pan) {
+        const panValue = String(payload.pan).trim();
+        const oldPan = initial?.pan ? String(initial.pan).trim() : "";
+        // Only check if PAN was actually changed to a different value
+        if (panValue && panValue !== oldPan) {
+          const { data: existing } = await supabase
+            .from(table as never)
+            .select("id, name")
+            .eq("pan", panValue)
+            .maybeSingle();
+          if (existing) {
+            throw new Error(`PAN "${panValue}" already exists for "${existing.name}". Use a different PAN.`);
+          }
+        }
+      }
+
       if (initial?.id) {
         const { data, error } = await supabase
           .from(table as never)

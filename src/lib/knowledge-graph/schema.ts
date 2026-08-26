@@ -87,7 +87,7 @@ const NODES: Omit<GraphNode, "outgoing" | "incoming" | "x" | "y" | "vx" | "vy">[
     label: "Customers",
     entity: "customers",
     type: "master",
-    description: "Customer master — billing, shipping, contact info.",
+    description: "Customer master — billing, shipping, contact info, payment terms.",
     columns: [
       "id",
       "name",
@@ -99,6 +99,7 @@ const NODES: Omit<GraphNode, "outgoing" | "incoming" | "x" | "y" | "vx" | "vy">[
       "state",
       "city",
       "pincode",
+      "payment_terms_days",
       "user_id",
     ],
   },

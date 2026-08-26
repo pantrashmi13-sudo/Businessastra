@@ -809,30 +809,45 @@ export function useDataGraph() {
 
       if (error) throw error;
 
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
       const newNodes: DataNode[] = [];
       const newEdges: DataEdge[] = [];
 
       (invoices || []).forEach((inv: any) => {
+        // Calculate overdue based on customer's payment_terms_days
+        const customer = inv.customers;
+        const invoiceDate = inv.invoice_date ? new Date(inv.invoice_date) : null;
+        const paymentDays = customer?.payment_terms_days ?? 30;
+        const dueDate = invoiceDate ? new Date(invoiceDate.getTime() + paymentDays * 86400000) : null;
+        const isOverdue = dueDate ? dueDate < today : false;
+
+        // Only include truly overdue invoices
+        if (!isOverdue) return;
+
+        const daysOverdue = dueDate ? Math.floor((today.getTime() - dueDate.getTime()) / 86400000) : 0;
+
         const invNode = makeNode("sales_invoices", inv);
         newNodes.push(invNode);
 
-        if (inv.customers) {
-          const custNode = makeNode("customers", inv.customers);
+        if (customer) {
+          const custNode = makeNode("customers", customer);
           newNodes.push(custNode);
           newEdges.push({
             id: `${custNode.id}-${invNode.id}`,
             source: custNode.id,
             target: invNode.id,
-            label: "unpaid balance",
+            label: `overdue ${daysOverdue}d`,
             amount: Number(inv.final_amount ?? inv.total_amount ?? 0),
-            status: "unpaid",
+            status: "overdue",
             animated: true,
           });
         }
       });
 
       if (newNodes.length === 0) {
-        toast.success("No pending overdue invoices found!");
+        toast.success("No overdue invoices found!");
       } else {
         addData(newNodes, newEdges);
         toast.info(`Loaded ${newNodes.length} nodes for overdue debtors`);

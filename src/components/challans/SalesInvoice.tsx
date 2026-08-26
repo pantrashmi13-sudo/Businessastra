@@ -57,9 +57,15 @@ export interface SalesInvoiceProps {
   challanNumbers?: string[];
   readOnly?: boolean;
   onLinesChange?: (lines: InvoiceLineData[]) => void;
-  onInvoiceNumberChange?: (num: string) => void;
   onInvoiceDateChange?: (date: string) => void;
   onSave?: (data: {
+    subtotal: number;
+    discount: number;
+    vat_amount: number;
+    total_amount: number;
+    lines: InvoiceLineData[];
+  }) => void;
+  onSaveAndReceive?: (data: {
     subtotal: number;
     discount: number;
     vat_amount: number;
@@ -81,9 +87,9 @@ export function SalesInvoice({
   challanNumbers = [],
   readOnly = false,
   onLinesChange,
-  onInvoiceNumberChange,
   onInvoiceDateChange,
   onSave,
+  onSaveAndReceive,
 }: SalesInvoiceProps) {
   const dateFormat = useDateFormat();
   const [discount, setDiscount] = useState(initialDiscount);
@@ -131,28 +137,36 @@ export function SalesInvoice({
 
   const handlePrint = () => window.print();
 
+  const invoiceData = {
+    subtotal: totals.subtotal,
+    discount: totals.discount,
+    vat_amount: totals.vat_amount,
+    total_amount: totals.total_amount,
+    lines,
+  };
+
   return (
     <div className="flex flex-col">
       {/* Print Button - hidden in print */}
-      <div className="flex justify-end mb-4 no-print">
+      <div className="flex justify-end mb-4 no-print gap-2">
         <Button onClick={handlePrint} size="sm">
           <Printer className="mr-1 h-4 w-4" /> Print Invoice
         </Button>
         {onSave && (
           <Button
-            onClick={() =>
-              onSave({
-                subtotal: totals.subtotal,
-                discount: totals.discount,
-                vat_amount: totals.vat_amount,
-                total_amount: totals.total_amount,
-                lines,
-              })
-            }
+            onClick={() => onSave(invoiceData)}
             size="sm"
-            className="ml-2"
+            variant="outline"
           >
             Save Invoice
+          </Button>
+        )}
+        {onSaveAndReceive && (
+          <Button
+            onClick={() => onSaveAndReceive(invoiceData)}
+            size="sm"
+          >
+            Save & Receive (Cash Sale)
           </Button>
         )}
       </div>
@@ -234,15 +248,7 @@ export function SalesInvoice({
           <div className="text-right">
             <div className="mb-2 flex items-center justify-end gap-2">
               <span className="text-xs text-muted-foreground">Invoice #:</span>
-              {readOnly ? (
-                <span className="font-mono font-semibold text-sm">{invoiceNumber}</span>
-              ) : (
-                <Input
-                  className="h-7 w-[160px] text-right text-xs font-mono"
-                  value={invoiceNumber}
-                  onChange={(e) => onInvoiceNumberChange?.(e.target.value)}
-                />
-              )}
+              <span className="font-mono font-semibold text-sm">{invoiceNumber}</span>
             </div>
             <div className="mb-2 flex items-center justify-end gap-2">
               <span className="text-xs text-muted-foreground">Date:</span>

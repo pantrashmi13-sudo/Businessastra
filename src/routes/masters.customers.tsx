@@ -118,9 +118,23 @@ function CustomerLedgerContent({
     },
   });
 
-  const isLoading = invoicesQuery.isLoading || receiptsQuery.isLoading;
+  // Fetch customer opening balance
+  const customerQuery = useQuery({
+    queryKey: ["customer-opening", customerId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("opening_balance, opening_balance_type")
+        .eq("id", customerId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+  });
 
-  // Build ledger entries: invoices = credit, receipts = debit
+  const isLoading = invoicesQuery.isLoading || receiptsQuery.isLoading || customerQuery.isLoading;
+
+  // Build ledger entries: inject opening balance first, then invoices = credit, receipts = debit
   const ledgerEntries = useMemo(() => {
     const entries: Array<{
       id: string;
@@ -129,6 +143,21 @@ function CustomerLedgerContent({
       debit: number;
       credit: number;
     }> = [];
+
+    // Opening balance row
+    const ob = Number(customerQuery.data?.opening_balance ?? 0);
+    const obType = customerQuery.data?.opening_balance_type ?? "receivable";
+    if (ob > 0) {
+      entries.push({
+        id: "opening-balance",
+        date: "0000-00-00",
+        description: "Opening Balance",
+        // receivable = customer owes us → credit side (they owe money)
+        // payable = we owe them → debit side (advance from customer)
+        debit: obType === "payable" ? ob : 0,
+        credit: obType === "receivable" ? ob : 0,
+      });
+    }
 
     (invoicesQuery.data ?? []).forEach((inv: any) => {
       entries.push({
@@ -150,10 +179,10 @@ function CustomerLedgerContent({
       });
     });
 
-    // Sort by date ascending
+    // Sort by date ascending (opening balance stays first with "0000-00-00")
     entries.sort((a, b) => a.date.localeCompare(b.date));
     return entries;
-  }, [invoicesQuery.data, receiptsQuery.data]);
+  }, [invoicesQuery.data, receiptsQuery.data, customerQuery.data]);
 
   // Compute running balance
   const rowsWithBalance = useMemo(() => {
@@ -212,9 +241,12 @@ function CustomerLedgerContent({
           </TableHeader>
           <TableBody>
             {displayRows.map((r) => (
-              <TableRow key={r.id} className="hover:bg-muted/30">
+              <TableRow
+                key={r.id}
+                className={r.id === "opening-balance" ? "bg-amber-50 font-semibold hover:bg-amber-100" : "hover:bg-muted/30"}
+              >
                 <TableCell className="text-muted-foreground font-mono text-xs py-2.5">
-                  {formatDate(r.date, dateFormat)}
+                  {r.id === "opening-balance" ? "Opening" : formatDate(r.date, dateFormat)}
                 </TableCell>
                 <TableCell className="font-medium py-2.5">{r.description}</TableCell>
                 <TableCell className="text-right tabular-nums font-mono py-2.5">

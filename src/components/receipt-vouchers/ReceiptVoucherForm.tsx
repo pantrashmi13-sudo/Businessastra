@@ -233,6 +233,64 @@ export function ReceiptVoucherForm({
     return options;
   }, [pettyCashQuery.data, bankAccountsQuery.data]);
 
+  // Fetch opening balance and compute running balance for selected customer
+  const customerBalanceQuery = useQuery({
+    queryKey: ["customer-balance", customerId],
+    queryFn: async () => {
+      if (!customerId) return null;
+
+      // Fetch opening balance
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("opening_balance, opening_balance_type")
+        .eq("id", customerId)
+        .single();
+
+      const ob = Number(cust?.opening_balance ?? 0);
+      const obType = cust?.opening_balance_type ?? "receivable";
+
+      // Fetch all invoices (credit = customer owes)
+      const { data: invoices } = await supabase
+        .from("sales_invoices" as any)
+        .select("total_amount")
+        .eq("customer_id", customerId);
+
+      // Fetch all sales returns (reduces what customer owes)
+      const { data: salesReturns } = await supabase
+        .from("sales_returns" as any)
+        .select("total_amount")
+        .eq("customer_id", customerId);
+
+      // Fetch all receipts (debit = customer paid)
+      const { data: receipts } = await supabase
+        .from("receipt_vouchers" as any)
+        .select("total_amount")
+        .eq("customer_id", customerId);
+
+      const totalInvoiced = (invoices ?? []).reduce((s: number, i: any) => s + Number(i.total_amount ?? 0), 0);
+      const totalReturns = (salesReturns ?? []).reduce((s: number, r: any) => s + Number(r.total_amount ?? 0), 0);
+      const totalReceived = (receipts ?? []).reduce((s: number, r: any) => s + Number(r.total_amount ?? 0), 0);
+
+      const netSales = totalInvoiced - totalReturns;
+
+      // Opening balance: receivable = credit side (positive outstanding), payable = debit side (negative outstanding)
+      const obCredit = obType === "receivable" ? ob : 0;
+      const obDebit = obType === "payable" ? ob : 0;
+
+      const runningBalance = (obCredit + netSales) - (obDebit + totalReceived);
+
+      return {
+        opening_balance: ob,
+        opening_balance_type: obType,
+        net_sales: netSales,
+        total_returns: totalReturns,
+        total_received: totalReceived,
+        running_balance: runningBalance,
+      };
+    },
+    enabled: payerType === "customer" && !!customerId,
+  });
+
   // Fetch unpaid sales invoices for selected customer
   const unpaidInvoicesQuery = useQuery({
     queryKey: ["unpaid-sales-invoices", customerId],
@@ -762,6 +820,36 @@ export function ReceiptVoucherForm({
                   </div>
                 </RadioGroup>
               </div>
+
+              {/* Running Opening Balance */}
+              {customerBalanceQuery.data && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">Opening Balance</p>
+                      <p className="font-semibold font-mono">{inr(customerBalanceQuery.data.opening_balance)}</p>
+                      <p className="text-xs text-muted-foreground">{customerBalanceQuery.data.opening_balance_type === "receivable" ? "Receivable" : "Payable"}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Net Sales</p>
+                      <p className="font-semibold font-mono text-blue-700">{inr(customerBalanceQuery.data.net_sales)}</p>
+                      {customerBalanceQuery.data.total_returns > 0 && (
+                        <p className="text-xs text-orange-600">Returns: -{inr(customerBalanceQuery.data.total_returns)}</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Total Received</p>
+                      <p className="font-semibold font-mono text-emerald-700">{inr(customerBalanceQuery.data.total_received)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Running Balance</p>
+                      <p className={`font-bold font-mono ${customerBalanceQuery.data.running_balance > 0 ? "text-destructive" : "text-emerald-700"}`}>
+                        {inr(customerBalanceQuery.data.running_balance)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {adjustmentType === "invoice_wise" && (
                 <div className="space-y-3">

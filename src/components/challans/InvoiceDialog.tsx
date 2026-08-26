@@ -13,6 +13,15 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -109,6 +118,32 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [customerSearch, setCustomerSearch] = useState("");
+  const [invoiceNumberLoading, setInvoiceNumberLoading] = useState(false);
+
+  // Receipt details for Save & Receive
+  const [showReceiptForm, setShowReceiptForm] = useState(false);
+  const [pendingInvoiceData, setPendingInvoiceData] = useState<{
+    subtotal: number;
+    discount: number;
+    vat_amount: number;
+    total_amount: number;
+    lines: InvoiceLineData[];
+  } | null>(null);
+  const [receiptMode, setReceiptMode] = useState("petty_cash");
+  const [receiptReference, setReceiptReference] = useState("");
+  const [receivedInType, setReceivedInType] = useState("");
+  const [receivedInId, setReceivedInId] = useState("");
+
+  const RECEIPT_MODES = [
+    { value: "petty_cash", label: "Petty Cash" },
+    { value: "qr", label: "QR" },
+    { value: "cheque", label: "Cheque" },
+    { value: "online_banking", label: "Online Banking" },
+    { value: "ips", label: "IPS" },
+    { value: "mobile_banking", label: "Mobile Banking" },
+    { value: "cards", label: "Cards" },
+    { value: "other", label: "Other" },
+  ];
 
   // Reset state when dialog closes
   useEffect(() => {
@@ -120,6 +155,13 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
       setInvoiceNumber("");
       setInvoiceDate(new Date().toISOString().slice(0, 10));
       setCustomerSearch("");
+      setInvoiceNumberLoading(false);
+      setShowReceiptForm(false);
+      setPendingInvoiceData(null);
+      setReceiptMode("petty_cash");
+      setReceiptReference("");
+      setReceivedInType("");
+      setReceivedInId("");
     }
   }, [open]);
 
@@ -193,11 +235,42 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
     enabled: open,
   });
 
+  // Fetch petty cash accounts for receipt
+  const pettyCashQuery = useQuery({
+    queryKey: ["petty-cash-accounts", "invoice-dialog"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("petty_cash_accounts")
+        .select("id, name, current_balance")
+        .eq("status", "active")
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: open,
+  });
+
+  // Fetch bank accounts for receipt
+  const bankAccountsQuery = useQuery({
+    queryKey: ["bank-accounts", "invoice-dialog"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bank_accounts")
+        .select("id, bank_name, account_number, current_balance")
+        .eq("status", "active")
+        .order("bank_name");
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: open,
+  });
+
   // ── Invoice number generation ──────────────────────────────────
 
-  const generateInvoiceNumber = async (): Promise<string> => {
+  const generateInvoiceNumber = async (type: "pan" | "vat"): Promise<string> => {
     try {
-      return await nextDocNumber("SI", "sales_invoices", "invoice_number", company.id);
+      const typeCode = type === "pan" ? "P" : "VAT";
+      return await nextDocNumber("SI", "sales_invoices", "invoice_number", company.id, typeCode);
     } catch (err) {
       console.error("Invoice number generation failed:", err);
       throw new Error("Failed to generate invoice number. Please try again.");
@@ -278,6 +351,187 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  // ── Save & Receive mutation (Cash Sale) ─────────────────────────
+
+  const saveAndReceiveMutation = useMutation({
+    mutationFn: async (data: {
+      subtotal: number;
+      discount: number;
+      vat_amount: number;
+      total_amount: number;
+      lines: InvoiceLineData[];
+    }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const num = invoiceNumber;
+      if (!num) throw new Error("Invoice number is missing. Please go back and try again.");
+
+      if (!receivedInType || !receivedInId) {
+        throw new Error("Please select an account to receive into");
+      }
+
+      const selectedChallans = pendingChallans.data?.filter((c) =>
+        selectedChallanIds.includes(c.id),
+      ) ?? [];
+
+      // 1. Insert invoice
+      const { error: invErr } = await supabase.from("sales_invoices" as any).insert({
+        invoice_number: num,
+        invoice_date: invoiceDate,
+        invoice_type: invoiceType,
+        company_id: company.id || null,
+        customer_id: customerId,
+        challan_ids: selectedChallanIds,
+        subtotal: data.subtotal,
+        discount: data.discount,
+        vat_amount: data.vat_amount,
+        total_amount: data.total_amount,
+        status: "draft",
+        user_id: user.id,
+      } as any);
+      if (invErr) throw invErr;
+
+      // Get the inserted invoice ID
+      const { data: inserted } = await supabase
+        .from("sales_invoices" as any)
+        .select("id")
+        .eq("invoice_number", num)
+        .single();
+
+      const invoiceId = (inserted as any)?.id;
+
+      // Insert line items
+      if (invoiceId && data.lines.length > 0) {
+        const linePayloads = data.lines.map((l) => ({
+          invoice_id: invoiceId,
+          sno: l.sno,
+          ref_id: l.ref_id || null,
+          code: l.code || null,
+          name: l.name,
+          uom: l.uom || "NOS",
+          quantity: l.quantity,
+          per_unit: l.per_unit,
+          vat_rate: l.vat_rate,
+          line_amount: l.quantity * l.per_unit,
+        }));
+        const { error: lineErr } = await supabase
+          .from("sales_invoice_lines" as any)
+          .insert(linePayloads as any);
+        if (lineErr) throw lineErr;
+      }
+
+      // 2. Create receipt voucher
+      const { data: companies } = await supabase
+        .from("companies")
+        .select("id, is_default");
+      const activeCompany = companies?.find((c: any) => c.is_default) ?? companies?.[0];
+      const companyId = activeCompany?.id ?? null;
+
+      if (companyId) {
+        const rvNumber = await nextDocNumber("RV", "receipt_vouchers", "voucher_number", companyId);
+
+        const { error: rvErr } = await supabase
+          .from("receipt_vouchers" as any)
+          .insert({
+            company_id: companyId,
+            voucher_number: rvNumber,
+            payer_type: "customer",
+            customer_id: customerId,
+            receipt_mode: receiptMode,
+            reference_number: receiptReference || null,
+            receipt_date: invoiceDate,
+            total_amount: data.total_amount,
+            adjustment_type: "simple",
+            remarks: `Invoice ${num}`,
+            received_in_type: receivedInType,
+            received_in_id: receivedInId,
+            status: "final",
+          } as any);
+        if (rvErr) throw rvErr;
+
+        // Update balance of received-in account
+        if (receivedInType === "petty_cash") {
+          const { data: pc } = await supabase
+            .from("petty_cash_accounts")
+            .select("current_balance")
+            .eq("id", receivedInId)
+            .single();
+          if (pc) {
+            await supabase
+              .from("petty_cash_accounts")
+              .update({ current_balance: Number(pc.current_balance) + data.total_amount })
+              .eq("id", receivedInId);
+          }
+        } else if (receivedInType === "bank") {
+          const { data: bank } = await supabase
+            .from("bank_accounts")
+            .select("current_balance")
+            .eq("id", receivedInId)
+            .single();
+          if (bank) {
+            await supabase
+              .from("bank_accounts")
+              .update({ current_balance: Number(bank.current_balance) + data.total_amount })
+              .eq("id", receivedInId);
+          }
+        }
+
+        // Create ledger entry
+        const description = `Receipt ${rvNumber} from ${selectedCustomer?.name ?? "customer"}`;
+        if (receivedInType === "petty_cash") {
+          await supabase.from("petty_cash_ledger" as any).insert({
+            petty_cash_id: receivedInId,
+            date: invoiceDate,
+            description,
+            debit: data.total_amount,
+            credit: 0,
+            reference_type: "receipt_voucher",
+          });
+        } else if (receivedInType === "bank") {
+          await supabase.from("bank_ledger" as any).insert({
+            bank_account_id: receivedInId,
+            date: invoiceDate,
+            description,
+            debit: data.total_amount,
+            credit: 0,
+            reference_type: "receipt_voucher",
+          });
+        }
+
+        // Link receipt to invoice
+        const { data: rv } = await supabase
+          .from("receipt_vouchers" as any)
+          .select("id")
+          .eq("voucher_number", rvNumber)
+          .single();
+
+        if (rv && invoiceId) {
+          await supabase
+            .from("receipt_voucher_invoices" as any)
+            .insert({
+              receipt_voucher_id: rv.id,
+              invoice_id: invoiceId,
+              amount_applied: data.total_amount,
+            });
+        }
+
+        toast.success(`Receipt ${rvNumber} created.`);
+      }
+
+      return num;
+    },
+    onSuccess: (num) => {
+      toast.success(`Invoice ${num} saved with receipt`);
+      qc.invalidateQueries({ queryKey: ["sales_invoices"] });
+      qc.invalidateQueries({ queryKey: ["receipt-vouchers"] });
+      qc.invalidateQueries({ queryKey: ["petty-cash-accounts"] });
+      qc.invalidateQueries({ queryKey: ["bank-accounts"] });
+      onOpenChange(false);
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
   // ── Derived data ───────────────────────────────────────────────
 
   const selectedCustomer = useMemo(
@@ -348,12 +602,15 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
   const proceedToInvoice = async (type: "pan" | "vat") => {
     try {
       setInvoiceType(type);
-      const num = await generateInvoiceNumber();
+      setInvoiceNumberLoading(true);
+      const num = await generateInvoiceNumber(type);
       setInvoiceNumber(num);
       setStep("invoice");
     } catch (err) {
       console.error("Failed to generate invoice:", err);
       toast.error("Failed to generate invoice number. Check console for details.");
+    } finally {
+      setInvoiceNumberLoading(false);
     }
   };
 
@@ -571,17 +828,23 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
 
-            <p className="text-sm text-muted-foreground">
-              Your company is configured for VAT. Choose the invoice format:
-            </p>
+            {invoiceNumberLoading ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground">Generating invoice number...</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Your company is configured for VAT. Choose the invoice format:
+                </p>
 
-            <div className="grid grid-cols-2 gap-4">
-              <Card
-                className="cursor-pointer hover:border-primary transition-colors"
-                onClick={() => proceedToInvoice("pan")}
-              >
-                <CardContent className="pt-6 text-center space-y-2">
-                  <CreditCard className="h-8 w-8 mx-auto text-primary" />
+                <div className="grid grid-cols-2 gap-4">
+                  <Card
+                    className="cursor-pointer hover:border-primary transition-colors"
+                    onClick={() => proceedToInvoice("pan")}
+                  >
+                    <CardContent className="pt-6 text-center space-y-2">
+                      <CreditCard className="h-8 w-8 mx-auto text-primary" />
                   <p className="font-semibold">PAN Bill</p>
                   <p className="text-xs text-muted-foreground">
                     No VAT. Editable qty &amp; rate. Professional format.
@@ -602,14 +865,18 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
                 </CardContent>
               </Card>
             </div>
+            </>
+            )}
           </div>
         )}
 
         {/* Step 4: Invoice View */}
         {step === "invoice" && (
           <div>
-            {saveMutation.isPending && (
-              <p className="text-sm text-muted-foreground text-center py-4">Saving invoice…</p>
+            {(saveMutation.isPending || saveAndReceiveMutation.isPending) && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                {saveAndReceiveMutation.isPending ? "Saving invoice & creating receipt…" : "Saving invoice…"}
+              </p>
             )}
             {mergedLines.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">
@@ -627,12 +894,106 @@ export function InvoiceDialog({ open, onOpenChange }: Props) {
                   poReference={poReference}
                   initialLines={mergedLines}
                   challanNumbers={challanNumbers}
-                  onInvoiceNumberChange={setInvoiceNumber}
                   onInvoiceDateChange={setInvoiceDate}
                   onSave={(data) => saveMutation.mutate(data)}
+                  onSaveAndReceive={(data) => {
+                    setPendingInvoiceData(data);
+                    setShowReceiptForm(true);
+                  }}
                 />
               </InvoiceErrorBoundary>
             )}
+          </div>
+        )}
+
+        {/* Receipt Details Form (overlay when Save & Receive clicked) */}
+        {showReceiptForm && pendingInvoiceData && (
+          <div className="mt-4 border-t pt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Receipt Details</h3>
+              <p className="text-lg font-bold">{inr(pendingInvoiceData.total_amount)}</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Receipt Mode *</Label>
+                <Select value={receiptMode} onValueChange={setReceiptMode}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RECEIPT_MODES.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Reference Number</Label>
+                <Input
+                  value={receiptReference}
+                  onChange={(e) => setReceiptReference(e.target.value)}
+                  placeholder="Cheque no. / Transaction ID"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Received In *</Label>
+                <Select
+                  value={`${receivedInType}:${receivedInId}`}
+                  onValueChange={(val) => {
+                    const [type, id] = val.split(":");
+                    setReceivedInType(type);
+                    setReceivedInId(id);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(pettyCashQuery.data ?? []).map((pc) => (
+                      <SelectItem key={`petty_cash:${pc.id}`} value={`petty_cash:${pc.id}`}>
+                        Petty Cash - {pc.name} ({inr(pc.current_balance)})
+                      </SelectItem>
+                    ))}
+                    {(bankAccountsQuery.data ?? []).map((bank) => (
+                      <SelectItem key={`bank:${bank.id}`} value={`bank:${bank.id}`}>
+                        Bank - {bank.bank_name} ({bank.account_number}) ({inr(bank.current_balance)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowReceiptForm(false);
+                  setPendingInvoiceData(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (!receivedInType || !receivedInId) {
+                    toast.error("Please select an account to receive into");
+                    return;
+                  }
+                  saveAndReceiveMutation.mutate(pendingInvoiceData);
+                }}
+                disabled={saveAndReceiveMutation.isPending}
+              >
+                {saveAndReceiveMutation.isPending ? "Saving…" : "Confirm & Save"}
+              </Button>
+            </div>
           </div>
         )}
       </DialogContent>

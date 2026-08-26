@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -99,7 +99,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const dateFormat = useDateFormat();
-  const { company } = useCompany();
+  const { company, isLoading: companyLoading } = useCompany();
 
   const existing = initial?.challan;
   const isNew = !challanId;
@@ -160,29 +160,6 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
     return [emptyLine(1)];
   });
 
-  // Auto-generate running Challan Number for new challans
-  useEffect(() => {
-    if (!isNew) return;
-    if (challanNumber) return;
-    if (!company?.id) return;
-
-    let cancelled = false;
-    nextDocNumber("DC", "delivery_challans", "challan_number", company.id)
-      .then((num) => {
-        if (!cancelled) setChallanNumber(num);
-      })
-      .catch((err) => {
-        console.error("Challan number generation failed:", err);
-        // Fallback: random number
-        const d = new Date();
-        const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-        if (!cancelled) setChallanNumber(`DC-${ym}-${Math.floor(Math.random() * 900 + 100)}`);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isNew, challanNumber, company?.id]);
-
   // Load Customers Master query
   const customers = useQuery({
     queryKey: ["customers", "list"],
@@ -216,6 +193,47 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
       return data ?? [];
     },
   });
+
+  // Auto-generate running Challan Number for new challans
+  const [challanNumberLoading, setChallanNumberLoading] = useState(false);
+  
+  const generateChallanNumber = useCallback(async (whId: string) => {
+    if (!isNew) return;
+    if (!company?.id || company.id === "") {
+      console.warn("ChallanForm: company.id is empty, waiting for company to load");
+      return;
+    }
+    if (!whId) {
+      setChallanNumber("");
+      return;
+    }
+
+    const warehouse = warehouses.data?.find((w: any) => w.id === whId);
+    const warehouseCode = warehouse?.name?.replace(/\s+/g, "") || "NA";
+
+    setChallanNumberLoading(true);
+    try {
+      const num = await nextDocNumber("DC", "delivery_challans", "challan_number", company.id, warehouseCode);
+      setChallanNumber(num);
+    } catch (err) {
+      console.error("Challan number generation failed:", err);
+      toast.error(`Failed to generate challan number: ${(err as Error).message}`);
+      const d = new Date();
+      const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+      setChallanNumber(`DC-${ym}-${Math.floor(Math.random() * 900 + 100)}`);
+    } finally {
+      setChallanNumberLoading(false);
+    }
+  }, [isNew, company?.id, warehouses.data]);
+
+  // Generate on first warehouse selection (no existing number)
+  const handleWarehouseChange = useCallback((val: string) => {
+    setWarehouseId(val);
+    if (isNew) {
+      setChallanNumber("");
+      generateChallanNumber(val);
+    }
+  }, [isNew, generateChallanNumber]);
 
   // Load purchase bill lines query to extract lots per item (only from approved bills)
   const billLines = useQuery({
@@ -515,7 +533,7 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
       } = await supabase.auth.getUser();
       const payload: Record<string, unknown> = {
         customer_id: customerId,
-        company_id: null,
+        company_id: company?.id || null,
         challan_number: challanNumber.trim(),
         challan_date: challanDate || new Date().toISOString().slice(0, 10),
         po_reference: poReference || null,
@@ -1035,15 +1053,19 @@ export function ChallanForm({ challanId, initial }: ChallanFormProps) {
               <Input
                 value={challanNumber}
                 onChange={(e) => setChallanNumber(e.target.value)}
-                placeholder="DC-202607-001"
+                placeholder={!warehouseId ? "Select warehouse first" : challanNumberLoading ? "Generating..." : "DC-XXXX-XXXX"}
+                disabled={challanNumberLoading || !warehouseId}
               />
+              {challanNumberLoading && (
+                <p className="mt-1 text-xs text-muted-foreground">Auto-generating number...</p>
+              )}
             </div>
 
             <div>
               <Label className="mb-1 block text-xs font-medium text-muted-foreground">
                 Dispatch From Warehouse
               </Label>
-              <Select value={warehouseId} onValueChange={setWarehouseId}>
+              <Select value={warehouseId} onValueChange={handleWarehouseChange}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select warehouse" />
                 </SelectTrigger>
