@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useCompany } from "@/hooks/use-company";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -170,14 +171,21 @@ export function ItemFormDialog({
   onSaved,
 }: ItemFormDialogProps) {
   const qc = useQueryClient();
+  const { company } = useCompany();
 
   const { data: warehouses } = useQuery({
-    queryKey: ["warehouses"],
+    queryKey: ["warehouses", company?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("warehouses").select("*").order("name");
+      if (!company?.id) return [];
+      const { data, error } = await supabase
+        .from("warehouses")
+        .select("*")
+        .eq("company_id", company.id)
+        .order("name");
       if (error) throw error;
       return data;
     },
+    enabled: !!company?.id,
   });
 
   const getInitialType = (): ItemType | null => {
@@ -192,6 +200,25 @@ export function ItemFormDialog({
   const [tempVal, setTempVal] = useState(0);
   const [warehouseOtherSelected, setWarehouseOtherSelected] = useState(false);
   const [customWarehouse, setCustomWarehouse] = useState("");
+  // Track the currently-selected warehouse_id so we can load its RAGs
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>(
+    (initial?.warehouse_id ?? "") as string,
+  );
+
+  const { data: warehouseRags } = useQuery({
+    queryKey: ["warehouse_rags", selectedWarehouseId],
+    queryFn: async () => {
+      if (!selectedWarehouseId) return [];
+      const { data, error } = await supabase
+        .from("warehouse_rags")
+        .select("*")
+        .eq("warehouse_id", selectedWarehouseId)
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!selectedWarehouseId,
+  });
 
   const buildDefaults = (): Partial<FormValues> => ({
     item_code: (initial?.item_code ?? ocrPrefill?.item_code ?? "") as string,
@@ -707,12 +734,15 @@ export function ItemFormDialog({
             <Label className="text-xs font-medium text-muted-foreground">Warehouse</Label>
             <Select
               value={
-                (form.watch("warehouse_id") as string) || (form.watch("warehouse") as string) || ""
+                (form.watch("warehouse_id") as string) || ""
               }
               onValueChange={(v) => {
                 const wh = warehouses?.find((w: any) => w.id === v);
                 form.setValue("warehouse_id", v as never);
                 form.setValue("warehouse", (wh ? wh.name : "") as never);
+                // Reset RAG when warehouse changes
+                form.setValue("rag_number", "" as never);
+                setSelectedWarehouseId(v);
               }}
             >
               <SelectTrigger>
@@ -728,13 +758,29 @@ export function ItemFormDialog({
             </Select>
           </div>
 
-          {(form.watch("warehouse_id") || form.watch("warehouse")) && (
-            <Field
-              label="RAG Number (Rack, Aisle, Grid)"
-              name="rag_number"
-              placeholder="e.g. Rack A, Row 2"
-            />
-          )}
+          {/* RAG Select — only shows when a warehouse is selected */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">RAG (Rack/Aisle/Grid)</Label>
+            <Select
+              value={(form.watch("rag_number") as string) || "__no_rag__"}
+              onValueChange={(v) => {
+                form.setValue("rag_number", (v === "__no_rag__" ? "" : v) as never);
+              }}
+              disabled={!selectedWarehouseId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={selectedWarehouseId ? "Select RAG" : "Select warehouse first"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__no_rag__">No RAG</SelectItem>
+                {(warehouseRags ?? []).map((rag: any) => (
+                  <SelectItem key={rag.id} value={rag.name}>
+                    {rag.code ? `${rag.code} – ${rag.name}` : rag.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           <SelectField label="Status" name="status" options={["Active", "Inactive"]} />
           <Field label="Reorder Level" name="reorder_level" type="number" />

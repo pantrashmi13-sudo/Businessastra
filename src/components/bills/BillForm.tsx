@@ -1024,8 +1024,11 @@ export function BillForm({
                 updatePayload.warehouse = resolvedWarehouseId;
                 updatePayload.warehouse_id = resolvedWarehouseId;
               }
-              if (vars.ragMap && vars.ragMap[line._originalIdx]) {
-                updatePayload.rag_id = vars.ragMap[line._originalIdx];
+              const resolvedRagId = vars.ragMap && vars.ragMap[line._originalIdx] && vars.ragMap[line._originalIdx] !== "__no_rag__"
+                ? vars.ragMap[line._originalIdx]
+                : null;
+              if (resolvedRagId) {
+                updatePayload.rag_id = resolvedRagId;
               }
               await supabase
                 .from(table)
@@ -2100,6 +2103,7 @@ export function BillForm({
                         <div className="flex items-center gap-2 shrink-0">
                           {!isMatched && billType === "items" && (
                             <>
+                              {/* Warehouse selector — defaults to Main Warehouse */}
                               <Select
                                 value={linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id || ""}
                                 onValueChange={(v) => {
@@ -2108,7 +2112,7 @@ export function BillForm({
                                 }}
                               >
                                 <SelectTrigger className="h-7 w-[130px] text-[10px]">
-                                  <SelectValue placeholder="Set Warehouse..." />
+                                  <SelectValue placeholder="Warehouse..." />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {(warehouses.data ?? []).map((wh: any) => (
@@ -2118,35 +2122,36 @@ export function BillForm({
                                   ))}
                                 </SelectContent>
                               </Select>
-                              {(linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id) && (
-                                <Select
-                                  value={linesRagMap[idx] || ""}
-                                  onValueChange={(v) =>
-                                    setLinesRagMap((prev) => ({ ...prev, [idx]: v }))
-                                  }
-                                >
-                                  <SelectTrigger className="h-7 w-[120px] text-[10px]">
-                                    <SelectValue placeholder="RAG (optional)" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {(warehouseRags.data ?? [])
-                                      .filter(
-                                        (r: any) =>
-                                          r.warehouse_id ===
-                                          (linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id),
-                                      )
-                                      .map((rag: any) => (
-                                        <SelectItem
-                                          key={rag.id}
-                                          value={rag.id}
-                                          className="text-[11px]"
-                                        >
-                                          {rag.code ? `${rag.code} - ${rag.name}` : rag.name}
-                                        </SelectItem>
-                                      ))}
-                                  </SelectContent>
-                                </Select>
-                              )}
+
+                              {/* RAG selector — always visible when warehouse is determined */}
+                              <Select
+                                value={linesRagMap[idx] || "__no_rag__"}
+                                onValueChange={(v) =>
+                                  setLinesRagMap((prev) => ({ ...prev, [idx]: v === "__no_rag__" ? "" : v }))
+                                }
+                              >
+                                <SelectTrigger className="h-7 w-[120px] text-[10px]">
+                                  <SelectValue placeholder="No RAG" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__no_rag__" className="text-[11px]">No RAG</SelectItem>
+                                  {(warehouseRags.data ?? [])
+                                    .filter(
+                                      (r: any) =>
+                                        r.warehouse_id ===
+                                        (linesWarehouseMap[idx] || lines[idx].warehouse_id || mainWarehouse?.id),
+                                    )
+                                    .map((rag: any) => (
+                                      <SelectItem
+                                        key={rag.id}
+                                        value={rag.id}
+                                        className="text-[11px]"
+                                      >
+                                        {rag.code ? `${rag.code} - ${rag.name}` : rag.name}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
                             </>
                           )}
                           {isMatched && billType === "items" && (
