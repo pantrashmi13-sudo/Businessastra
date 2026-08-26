@@ -1,4 +1,5 @@
-import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate, useLocation } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import {
   Building2,
   Users,
@@ -21,19 +22,21 @@ import {
   ClipboardList,
   Network,
   MessageSquare,
+  Settings,
+  ChevronRight,
 } from "lucide-react";
 
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
@@ -45,90 +48,111 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
-const masters = [
-  { title: "Companies", url: "/masters/companies", icon: Building2 },
-  { title: "Warehouses", url: "/masters/warehouses", icon: Building2 },
-  { title: "Customers", url: "/masters/customers", icon: Users },
-  { title: "Vendors", url: "/masters/vendors", icon: Truck },
-  { title: "Inventory", url: "/masters/items", icon: Package },
-  { title: "Fixed Assets", url: "/masters/fixed-assets", icon: Landmark },
-  { title: "Assets Register", url: "/fixed-assets-register", icon: Calculator },
+const navigationSections = [
+  {
+    title: "General",
+    icon: LayoutDashboard,
+    items: [
+      { title: "Dashboard", url: "/" }
+    ]
+  },
+  {
+    title: "Masters",
+    icon: Building2,
+    items: [
+      { title: "Companies", url: "/masters/companies" },
+      { title: "Warehouses", url: "/masters/warehouses" },
+      { title: "Customers", url: "/masters/customers" },
+      { title: "Vendors", url: "/masters/vendors" },
+      { title: "Inventory", url: "/masters/items" },
+      { title: "Fixed Assets", url: "/masters/fixed-assets" },
+    ]
+  },
+  {
+    title: "Bills & Purchase",
+    icon: FileText,
+    items: [
+      { title: "All Bills", url: "/bills" },
+      { title: "New Bill", url: "/bills/new" },
+      { title: "Purchase Returns", url: "/purchase-returns" },
+    ]
+  },
+  {
+    title: "Sales & Delivery",
+    icon: Truck,
+    items: [
+      { title: "Delivery Challans", url: "/challans" },
+      { title: "Consumptions", url: "/consumptions" },
+      { title: "Sales Invoices", url: "/sales-invoices" },
+      { title: "Sales Returns", url: "/sales-returns" },
+    ]
+  },
+  {
+    title: "Receipt & Payment",
+    icon: Banknote,
+    items: [
+      { title: "Receipt & Payment", url: "/receipt-payment" }
+    ]
+  },
+  {
+    title: "Cash & Bank",
+    icon: Wallet,
+    items: [
+      { title: "Cash & Bank", url: "/cash-bank" }
+    ]
+  },
+  {
+    title: "Accounting",
+    icon: Calculator,
+    items: [
+      { title: "Chart of Accounts", url: "/coa" },
+      { title: "Journal Entries", url: "/journal-entries" },
+      { title: "General Ledger", url: "/general-ledger" },
+    ]
+  },
+  {
+    title: "Reports",
+    icon: BookOpen,
+    items: [
+      { title: "Assets Register", url: "/fixed-assets-register" },
+      { title: "VAT Register", url: "/vat-register" },
+    ]
+  },
+  {
+    title: "System",
+    icon: Settings,
+    items: [
+      { title: "Knowledge Graph", url: "/knowledge-graph" },
+      { title: "AI Chat", url: "/chat" },
+    ]
+  },
 ];
-
-const bills = [
-  { title: "All Bills", url: "/bills", icon: FileText },
-  { title: "New Bill", url: "/bills/new", icon: Receipt },
-  { title: "Purchase Returns", url: "/purchase-returns", icon: RotateCcw },
-  { title: "Delivery Challans", url: "/challans", icon: Truck },
-  { title: "Consumptions", url: "/consumptions", icon: PackageMinus },
-  { title: "Sales Invoices", url: "/sales-invoices", icon: Receipt },
-  { title: "Sales Returns", url: "/sales-returns", icon: Undo2 },
-  { title: "VAT Register", url: "/vat-register", icon: Calculator },
-];
-
-const receiptPayment = [{ title: "Receipt & Payment", url: "/receipt-payment", icon: Banknote }];
-
-const cashBank = [{ title: "Cash & Bank", url: "/cash-bank", icon: Wallet }];
-
-const accounting = [
-  { title: "Chart of Accounts", url: "/coa", icon: ListTree },
-  { title: "Journal Entries", url: "/journal-entries", icon: ScrollText },
-  { title: "General Ledger", url: "/general-ledger", icon: ClipboardList },
-];
-
-const system = [
-  { title: "Knowledge Graph", url: "/knowledge-graph", icon: Network },
-  { title: "AI Chat", url: "/chat", icon: MessageSquare },
-];
-
-// Nav item that collapses sidebar on click, shows tooltip when collapsed
-function NavItem({
-  item,
-  isActive,
-  onSelect,
-  collapsed,
-}: {
-  item: { title: string; url: string; icon: React.ElementType };
-  isActive: boolean;
-  onSelect: () => void;
-  collapsed: boolean;
-}) {
-  const Icon = item.icon;
-
-  const btn = (
-    <SidebarMenuButton asChild isActive={isActive}>
-      <Link to={item.url} onClick={onSelect}>
-        <Icon />
-        <span>{item.title}</span>
-      </Link>
-    </SidebarMenuButton>
-  );
-
-  if (!collapsed) return <SidebarMenuItem>{btn}</SidebarMenuItem>;
-
-  return (
-    <SidebarMenuItem>
-      <Tooltip>
-        <TooltipTrigger asChild>{btn}</TooltipTrigger>
-        <TooltipContent side="right" className="text-xs font-medium">
-          {item.title}
-        </TooltipContent>
-      </Tooltip>
-    </SidebarMenuItem>
-  );
-}
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const { user } = useAuth();
   const { open, setOpen, isMobile, setOpenMobile } = useSidebar();
-
+  
+  // Accordion state: store the title of the currently expanded section
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  
   const collapsed = !open;
 
   const isActive = (url: string) =>
     url === "/" ? pathname === "/" : pathname === url || pathname.startsWith(url + "/");
+
+  // Auto-expand section based on current route on mount/navigation
+  useEffect(() => {
+    for (const section of navigationSections) {
+      if (section.items.some(item => isActive(item.url))) {
+        setExpandedSection(section.title);
+        break;
+      }
+    }
+  }, [pathname]);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -136,7 +160,7 @@ export function AppSidebar() {
     navigate({ to: "/login" });
   }
 
-  // Called when user picks any menu item → collapse sidebar
+  // Called when user picks any child menu item → collapse sidebar (into rail mode)
   function handleNavSelect() {
     if (isMobile) {
       setOpenMobile(false);
@@ -152,14 +176,16 @@ export function AppSidebar() {
     }
   }
 
-  const navGroups = [
-    { label: "Masters", items: masters },
-    { label: "Bills & Purchase", items: bills },
-    { label: "Receipt & Payment", items: receiptPayment },
-    { label: "Cash & Bank", items: cashBank },
-    { label: "Accounting", items: accounting },
-    { label: "System", items: system },
-  ];
+  function handleSectionClick(sectionTitle: string) {
+    if (collapsed && !isMobile) {
+      // If we're clicking a section while sidebar is in icon mode, expand the sidebar and open that section
+      setOpen(true);
+      setExpandedSection(sectionTitle);
+    } else {
+      // Toggle accordion
+      setExpandedSection(prev => prev === sectionTitle ? null : sectionTitle);
+    }
+  }
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -185,39 +211,62 @@ export function AppSidebar() {
           </Link>
         </SidebarHeader>
 
-        <SidebarContent>
-          {/* Dashboard — always first */}
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <NavItem
-                  item={{ title: "Dashboard", url: "/", icon: LayoutDashboard }}
-                  isActive={pathname === "/"}
-                  onSelect={handleNavSelect}
-                  collapsed={collapsed}
-                />
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          {navGroups.map((group) => (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {group.items.map((m) => (
-                    <NavItem
-                      key={m.url}
-                      item={m}
-                      isActive={isActive(m.url)}
-                      onSelect={handleNavSelect}
-                      collapsed={collapsed}
-                    />
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
+        <SidebarContent className="px-2 py-2">
+          <SidebarMenu>
+            {navigationSections.map((section) => {
+              const Icon = section.icon;
+              const isExpanded = expandedSection === section.title;
+              const hasActiveChild = section.items.some(item => isActive(item.url));
+              
+              return (
+                <Collapsible
+                  key={section.title}
+                  open={isExpanded}
+                  onOpenChange={(isOpen) => setExpandedSection(isOpen ? section.title : null)}
+                  asChild
+                >
+                  <SidebarMenuItem>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuButton 
+                            className="w-full font-medium" 
+                            isActive={hasActiveChild && !isExpanded}
+                            onClick={() => handleSectionClick(section.title)}
+                          >
+                            <Icon />
+                            <span>{section.title}</span>
+                            <ChevronRight 
+                              className={`ml-auto transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`} 
+                            />
+                          </SidebarMenuButton>
+                        </CollapsibleTrigger>
+                      </TooltipTrigger>
+                      {collapsed && (
+                        <TooltipContent side="right" className="text-xs font-medium">
+                          {section.title}
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                    
+                    <CollapsibleContent>
+                      <SidebarMenuSub className="mr-0 pr-0">
+                        {section.items.map((item) => (
+                          <SidebarMenuSubItem key={item.url}>
+                            <SidebarMenuSubButton asChild isActive={isActive(item.url)}>
+                              <Link to={item.url} onClick={handleNavSelect}>
+                                <span>{item.title}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </SidebarMenuItem>
+                </Collapsible>
+              );
+            })}
+          </SidebarMenu>
         </SidebarContent>
 
         <SidebarFooter className="border-t border-sidebar-border p-3">
