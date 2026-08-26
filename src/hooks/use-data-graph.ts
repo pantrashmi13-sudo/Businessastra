@@ -72,7 +72,7 @@ export function useDataGraph() {
     let status: DataNode["status"] = undefined;
     let amount: number | undefined = undefined;
     let routeUrl: string | undefined = undefined;
-    let isGroup = false;
+    let isGroup = table.endsWith("-group");
 
     switch (table) {
       case "companies":
