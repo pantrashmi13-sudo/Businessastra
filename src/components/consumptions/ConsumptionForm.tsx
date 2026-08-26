@@ -34,6 +34,8 @@ import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
 import { BsDatePicker } from "@/components/ui/bs-date-picker";
 
+import { useCompany } from "@/hooks/use-company";
+
 interface ConsumptionLine {
   sno: number;
   ref_id: string | null;
@@ -71,6 +73,7 @@ const emptyLine = (sno: number): ConsumptionLine => ({
 const lineTotal = (l: ConsumptionLine) => Number(l.quantity || 0) * Number(l.per_unit || 0);
 
 export function ConsumptionForm({ consumptionId, initial }: ConsumptionFormProps) {
+  const { company } = useCompany();
   const isNew = !consumptionId;
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -283,7 +286,7 @@ export function ConsumptionForm({ consumptionId, initial }: ConsumptionFormProps
         consumption_number: consumptionNumber,
         consumption_date: consumptionDate || null,
         notes: notes || null,
-        company_id: null,
+        company_id: company.id || null,
         status: "final",
       };
 

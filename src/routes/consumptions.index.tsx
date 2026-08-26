@@ -19,6 +19,7 @@ import {
 import { num } from "@/lib/format";
 import { formatDate } from "@/lib/date-conversion";
 import { useDateFormat } from "@/hooks/use-date-format";
+import { useCompany } from "@/hooks/use-company";
 
 export const Route = createFileRoute("/consumptions/")({
   component: ConsumptionsList,
@@ -27,13 +28,16 @@ export const Route = createFileRoute("/consumptions/")({
 function ConsumptionsList() {
   const [q, setQ] = useState("");
   const dateFormat = useDateFormat();
+  const { company } = useCompany();
 
   const consumptions = useQuery({
-    queryKey: ["consumptions"],
+    queryKey: ["consumptions", company.id],
     queryFn: async () => {
+      if (!company.id) return [];
       const { data, error } = await supabase
         .from("consumptions")
         .select("*")
+        .eq("company_id", company.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Array<Record<string, unknown>>;
