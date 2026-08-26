@@ -176,6 +176,13 @@ export function AppSidebar() {
     }
   }
 
+  // Collapse sidebar when mouse leaves it (desktop only)
+  function handleMouseLeave() {
+    if (!isMobile && open) {
+      setOpen(false);
+    }
+  }
+
   function handleSectionClick(sectionTitle: string) {
     if (collapsed && !isMobile) {
       // If we're clicking a section while sidebar is in icon mode, expand the sidebar and open that section
@@ -192,6 +199,7 @@ export function AppSidebar() {
       <Sidebar
         collapsible="icon"
         onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         <SidebarHeader className="border-b border-sidebar-border px-4 py-3 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:items-center">
           <Link 
